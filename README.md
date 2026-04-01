@@ -6,7 +6,7 @@ A high-performance, multi-tenant license validation service built with Go.
 
 ## Core Philosophy
 
-Following the **Spatie-level** standard of clarity and explicitness:
+Following the **Open Source** standard of clarity and explicitness:
 - **Clarity over cleverness**: Code must be understandable in 30 seconds.
 - **Explicit over implicit**: No hidden side effects or magic behavior.
 - **Small focused components**: Single responsibility per file and package.
@@ -135,17 +135,20 @@ go run main.go
 │   └── server/                # Entrypoint (main.go)
 │
 ├── internal/                  # Private application logic
-│   ├── app/                   # Use cases (Validation, Tenant, License)
-│   ├── domain/                # Business models and rules
-│   ├── infrastructure/        # Infrastructure implementations (DB, Cache, limiter)
+│   ├── app/                   # Use cases (ValidationService)
+│   ├── domain/                # Business models and rules (License, ValidationResult)
 │   ├── http/                  # HTTP Transport layer
-│   │   ├── handlers/          # Route handlers
-│   │   └── router.go          # Route registration
-│   ├── worker/                # Worker pool implementation
-│   └── server/                # Application orchestrator (wiring)
+│   │   ├── handlers/          # Thin route handlers
+│   │   ├── middleware/        # Tenant, Auth, Rate limit middlewares
+│   │   ├── dto/               # API Request/Response models
+│   │   └── router.go          # Route registration & grouping
+│   ├── server/                # Application orchestrator (Server/Fiber setup)
+│   ├── infrastructure/        # DB, Cache, External integrations
+│   └── worker/                # Background job processing
 │
 ├── pkg/                       # Reusable public utilities
 ├── configs/                   # Unified configuration (main & logging)
+├── docs/                      # Detailed guides (setup.md, Logging.md)
 ├── migrations/                # Database migrations
 ├── tests/                     # Unit and integration tests
 ├── README.md
