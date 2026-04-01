@@ -35,7 +35,7 @@ Request → Tenant Auth → Rate Limit → Queue → Worker → Validation → R
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 
 ### Running Locally
 
@@ -91,7 +91,7 @@ The server will be available at `http://localhost:8080`.
 The service is designed with a clean and predictable public API, making it easy to integrate as a package or a standalone service:
 
 ```bash
-go get github.com/your-username/go-license-api
+go get github.com/devravik/go-license-api
 ```
 
 ```go
@@ -110,6 +110,7 @@ if err != nil {
 - **Concurrency**: Goroutines and buffered channels for the worker pool implementation.
 - **Storage**: PostgreSQL (production) using lightweight SQL or query builders.
 - **Rate Limiting**: Native Go token bucket implementation for per-tenant control.
+- **Logging**: Fiber Logger with `lumberjack` for daily rotation and Request ID tracking.
 
 ## Development Setup
 
@@ -119,7 +120,7 @@ if err != nil {
 
 ### Initial Setup
 ```bash
-git clone https://github.com/your-username/go-license-api.git
+git clone https://github.com/devravik/go-license-api.git
 cd go-license-api
 
 go mod tidy
@@ -136,12 +137,15 @@ go run main.go
 ├── internal/                  # Private application logic
 │   ├── app/                   # Use cases (Validation, Tenant, License)
 │   ├── domain/                # Business models and rules
-│   ├── infrastructure/        # PostgreSQL, Cache, Limiter
-│   ├── http/                  # Handlers, Middleware, Routes
-│   └── worker/                # Worker pool implementation
+│   ├── infrastructure/        # Infrastructure implementations (DB, Cache, limiter)
+│   ├── http/                  # HTTP Transport layer
+│   │   ├── handlers/          # Route handlers
+│   │   └── router.go          # Route registration
+│   ├── worker/                # Worker pool implementation
+│   └── server/                # Application orchestrator (wiring)
 │
 ├── pkg/                       # Reusable public utilities
-├── configs/                   # Configuration files
+├── configs/                   # Unified configuration (main & logging)
 ├── migrations/                # Database migrations
 ├── tests/                     # Unit and integration tests
 ├── README.md
@@ -199,9 +203,14 @@ The service utilizes a singleton configuration pattern: **Load once, inject ever
 2. **Inject**: The `Config` struct is injected into handlers and services via constructors.
 
 ### Environment Variables
-- `MODE`: Deployment mode (`single` or `multi`).
-- `PORT`: Server port (defaults to `8080`).
+- `APP_NAME`: Name of the application (defaults to `Go License API`).
+- `APP_PORT`: Server port (defaults to `3000`).
 - `ADMIN_API_KEY`: Secret key required for administrative operations.
+- `APP_MODE`: Deployment mode (`single` or `multi`).
+- `LOG_ENABLED`: Enable or disable request logging (defaults to `true`).
+- `LOG_OUTPUT`: Log destination (`stdout` or `file`, defaults to `stdout`).
+- `LOG_DIR`: Directory for log files (defaults to `./logs`).
+- `LOG_LEVEL`: Log level (e.g., `error`, `info`, defaults to `error`).
 
 ### Principles
 - **System Settings**: Strictly managed via environment variables (e.g., ports, modes).
@@ -264,11 +273,17 @@ For simpler or smaller deployments, tenant management can be handled directly vi
 - **Worker Isolation**: Background processing is decoupled from the request-response cycle via a buffered job queue.
 - **Native Efficiency**: Built on Go's high-performance concurrency primitives.
 
-### Security
-- **Tenant Isolation**: Strictly enforced at the transport layer via middleware.
-- **Admin Protection**: Administrative endpoints are isolated and protected by the `ADMIN_API_KEY`.
-- **Data Privacy**: Strict tenant-scoped data access ensures privacy across multi-tenant deployments.
+### Timeout Architecture
+The service employs a **Dual-Layer Timeout** strategy to ensure maximum stability:
+- **Server Layer (TCP)**: Managed in `fiber.Config` to prevent connection-level resource exhaustion (Slowloris/DoS).
+- **Handler Layer (Context)**: Enforced via `timeout` middleware on each route. This ensures that long-running business logic or worker pool delays trigger a clean `408 Request Timeout` JSON response and propagate context cancellation to stop resource-heavy operations.
 
+### Logging Architecture
+The service includes a production-ready logging system:
+- **Fiber Logger**: Captures every request with timestamp, status, method, path, and **Request ID**.
+- **Log Rotation**: Uses `lumberjack` for automatic daily rotation, compression, and retention management.
+- **Fail-Safe Output**: Defaults to `stdout` for containerized environments (Docker/K8s) but supports persistent `file` logging with automatic directory creation and fallback to `stdout` on failure.
+- **Request ID Tracking**: Every log entry includes a unique request ID (via `requestid` middleware) for end-to-end tracing.
 
 ## Future Enhancements
 - Distributed queue integration (Kafka / RabbitMQ).
@@ -320,9 +335,9 @@ psql -U postgres -d your_db -f migrations/001_init.sql
 The service supports both single-tenant and multi-tenant configurations using a unified architecture.
 
 ### Mode Selection
-Deployment mode is controlled via the `MODE` environment variable:
-- `MODE=single`: Optimized for standalone or self-hosted setups.
-- `MODE=multi`: Designed for SaaS platforms requiring strict data isolation.
+Deployment mode is controlled via the `APP_MODE` environment variable:
+- `APP_MODE=single`: Optimized for standalone or self-hosted setups.
+- `APP_MODE=multi`: Designed for SaaS platforms requiring strict data isolation.
 
 ### Single-Tenant Mode
 - No tenant-specific headers are required for validation requests.
