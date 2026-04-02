@@ -7,12 +7,13 @@ import (
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/timeout"
 )
 
-func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationService) {
-	h := handlers.NewHandler(cfg, valSvc)
+func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationService, adminSvc app.AdminService, pool *worker.Pool) {
+	h := handlers.NewHandler(cfg, valSvc, adminSvc, pool)
 
 	// Landing Page
 	app.Get("/", timeout.New(h.Home, timeout.Config{
@@ -34,4 +35,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationServi
 	adminGroup := app.Group("/admin")
 	adminGroup.Use(middleware.Auth)
 	adminGroup.Get("/", h.AdminStatus)
+	adminGroup.Post("/licenses/revoke", h.AdminRevokeLicense)
+	adminGroup.Post("/tenants/:id/suspend", h.AdminSuspendTenant)
+	adminGroup.Post("/tenants/:id/rotate_key", h.AdminRotateTenantKey)
 }

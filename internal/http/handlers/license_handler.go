@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/devravik/go-license-api/internal/http/dto"
+	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -21,17 +24,41 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 		})
 	}
 
-	result, err := h.ValidationService.Validate(c.Context(), req.Key, req.Product)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{
+	apiKey, _ := c.Locals("api_key").(string)
+	resultCh := make(chan worker.Result, 1)
+	job := &worker.ValidateJob{
+		APIKey:     apiKey,
+		LicenseKey: req.Key,
+		Product:    req.Product,
+		Ctx:        context.Background(),
+		ResultCh:   resultCh,
+	}
+
+	if !h.Pool.Enqueue(job) {
+		c.Set("Retry-After", "5")
+		return c.Status(fiber.StatusServiceUnavailable).JSON(dto.LicenseValidationResponse{
 			Valid: false,
-			Error: "internal_validation_error",
+			Error: "service_unavailable",
 		})
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
-		Valid: result.Valid,
-		Meta:  result.Meta,
-		Error: result.Error,
-	})
+	select {
+	case result := <-resultCh:
+		if result.Err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{
+				Valid: false,
+				Error: "internal_validation_error",
+			})
+		}
+		return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+			Valid: result.Valid,
+			Meta:  result.Meta,
+			Error: result.Error,
+		})
+	case <-c.Context().Done():
+		return c.Status(fiber.StatusRequestTimeout).JSON(dto.LicenseValidationResponse{
+			Valid: false,
+			Error: "request_timeout",
+		})
+	}
 }
