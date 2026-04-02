@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"github.com/devravik/go-license-api/internal/infrastructure/crypto"
+	"github.com/devravik/go-license-api/internal/security"
 	"github.com/google/uuid"
 	"time"
 

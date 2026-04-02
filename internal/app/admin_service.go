@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/ports"
 	"github.com/google/uuid"
 )
 
@@ -34,20 +35,16 @@ type TenantCache interface {
 	InvalidateByTenantID(ctx context.Context, tenantID string)
 }
 
-type RateLimiterCache interface {
-	Invalidate(tenantID string)
-}
-
 type adminService struct {
 	licenses domain.LicenseRepository
 	tenants  domain.TenantRepository
 	licCache LicenseCache
 	tenCache TenantCache
-	limiter  RateLimiterCache
+	limiter  ports.RateLimiter
 	auditor  domain.AuditWriter
 }
 
-func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache, limiter RateLimiterCache, auditor domain.AuditWriter) AdminService {
+func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache, limiter ports.RateLimiter, auditor domain.AuditWriter) AdminService {
 	return &adminService{licenses: licenses, tenants: tenants, licCache: licCache, tenCache: tenCache, limiter: limiter, auditor: auditor}
 }
 

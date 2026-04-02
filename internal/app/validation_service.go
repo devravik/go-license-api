@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/ports"
 )
 
 type ValidationService interface {
@@ -12,21 +13,13 @@ type ValidationService interface {
 }
 
 type validationService struct {
-	tenants             TenantStore
-	licenses            LicenseStore
+	tenants             ports.TenantStore
+	licenses            ports.LicenseStore
 	auditCh             chan<- *domain.AuditEntry
 	minLicenseKeyLength int
 }
 
-type TenantStore interface {
-	Get(ctx context.Context, tenantID, apiKey string) (*domain.Tenant, error)
-}
-
-type LicenseStore interface {
-	Get(ctx context.Context, tenantID, key string) (*domain.License, error)
-}
-
-func NewValidationService(tenants TenantStore, licenses LicenseStore, auditCh chan<- *domain.AuditEntry, minLicenseKeyLength int) ValidationService {
+func NewValidationService(tenants ports.TenantStore, licenses ports.LicenseStore, auditCh chan<- *domain.AuditEntry, minLicenseKeyLength int) ValidationService {
 	return &validationService{
 		tenants:             tenants,
 		licenses:            licenses,

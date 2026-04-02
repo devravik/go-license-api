@@ -46,6 +46,11 @@ func (w *AuditWriter) Write(ctx context.Context, entry *domain.AuditEntry) {
 
 func (w *AuditWriter) Flush() {}
 
+// FlushWithContext allows callers to enforce a timeout during shutdown.
+// Current implementation is a no-op as writes are synchronous, but the API
+// ensures shutdown cannot block on audit flushing if implementations change.
+func (w *AuditWriter) FlushWithContext(ctx context.Context) {}
+
 func defaultText(v, fallback string) string {
 	if v == "" {
 		return fallback

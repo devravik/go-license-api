@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devravik/go-license-api/configs"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
+	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -23,12 +23,12 @@ func main() {
 	flag.BoolVar(&refresh, "refresh", false, "drop+recreate public schema before running migrations (LOCAL ONLY)")
 	flag.Parse()
 
-	appCfg := configs.Load()
+	appCfg := setup.Load()
 	if strings.EqualFold(appCfg.AppEnv, "production") && refresh {
 		log.Fatal("refresh not allowed in production")
 	}
 
-	dbCfg := configs.LoadDatabaseConfig()
+	dbCfg := setup.LoadDatabaseConfig()
 	databaseURL, err := dbCfg.BuildDatabaseURL()
 	if err != nil {
 		log.Fatalf("build database url: %v", err)

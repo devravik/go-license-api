@@ -16,6 +16,7 @@ type Pool struct {
 	workers    int
 	restarts   int64
 	taskTimeout time.Duration
+	closeOnce  sync.Once
 }
 
 func NewPool(workers, queueSize int, validation app.ValidationService, taskTimeout ...time.Duration) *Pool {
@@ -77,7 +78,9 @@ func (p *Pool) Restarts() int64 {
 }
 
 func (p *Pool) Drain(ctx context.Context) {
-	close(p.queue)
+	p.closeOnce.Do(func() {
+		close(p.queue)
+	})
 	done := make(chan struct{})
 	go func() {
 		p.wg.Wait()

@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devravik/go-license-api/configs"
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/devravik/go-license-api/internal/audit"
 	iaudit "github.com/devravik/go-license-api/internal/infrastructure/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
-	icrypto "github.com/devravik/go-license-api/internal/infrastructure/crypto"
+	icrypto "github.com/devravik/go-license-api/internal/security"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
 	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
 	"github.com/devravik/go-license-api/internal/webhook"
@@ -24,16 +24,30 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	jsoniter "github.com/json-iterator/go"
 )
 
-func New() (*fiber.App, *configs.Config) {
-	cfg := configs.Load()
-	logCfg := configs.LoadLoggingConfig()
-	cacheCfg := configs.LoadCacheConfig()
+// Server wires all runtime dependencies and exposes lifecycle hooks.
+type Server struct {
+	app          *fiber.App
+	cfg          *setup.Config
+	db           *pgxpool.Pool
+	pool         *worker.Pool
+	poolCtx      context.Context
+	poolCancel   context.CancelFunc
+	auditWriter  *idb.AuditWriter
+	auditQueue   chan *domain.AuditEntry
+	auditWorker  *iaudit.Worker
+}
+
+func New() (*Server, *setup.Config) {
+	cfg := setup.Load()
+	logCfg := setup.LoadLoggingConfig()
+	cacheCfg := setup.LoadCacheConfig()
 
 	// Fail fast on startup if PostgreSQL isn't reachable.
-	dbCfg := configs.LoadDatabaseConfig()
+	dbCfg := setup.LoadDatabaseConfig()
 	databaseURL, err := dbCfg.BuildDatabaseURL()
 	if err != nil {
 		log.Fatalf("build database url: %v", err)
@@ -130,13 +144,13 @@ func New() (*fiber.App, *configs.Config) {
 	wctx, wcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer wcancel()
 	if err := licenseStore.WarmUp(wctx, licenseRepo, cacheCfg.WarmUpLicenseLimit); err != nil {
-		log.Printf("license warmup failed: %v", err)
+		log.Printf("event=startup component=cache_warmup target=license status=error err=%v", err)
 	}
 	// Tenant warmup (bounded). Tenants currently lack an updated_at column; we warm up to limit from FindAll.
 	if cacheCfg.WarmUpTenantLimit > 0 {
 		tenants, err := tenantRepo.FindAll(wctx)
 		if err != nil {
-			log.Printf("tenant warmup fetch failed: %v", err)
+			log.Printf("event=startup component=cache_warmup target=tenant status=error err=%v", err)
 		} else {
 			n := cacheCfg.WarmUpTenantLimit
 			if n > len(tenants) {
@@ -149,6 +163,7 @@ func New() (*fiber.App, *configs.Config) {
 					tenantStore.Set(wctx, t.ID, t.OldAPIKey, t)
 				}
 			}
+			log.Printf("event=startup component=cache_warmup target=tenant status=success tenants=%d", n)
 		}
 	}
 
@@ -156,14 +171,17 @@ func New() (*fiber.App, *configs.Config) {
 	auditWriter := idb.NewAuditWriter(pool)
 	auditCh := make(chan *domain.AuditEntry, cfg.AuditQueueSize)
 	auditWorker := iaudit.NewWorker(auditWriter, auditCh, cfg.AuditWorkerCount, cfg.AuditRetryCount, cfg.AuditRetryDelay)
-	auditWorker.Start(context.Background())
+	awCtx, awCancel := context.WithCancel(context.Background())
+	_ = awCancel // retained for potential future use; worker stops via ctx or closed queue
+	auditWorker.Start(awCtx)
 
 	valSvc := app.NewValidationService(tenantStore, licenseStore, auditCh, cfg.MinLicenseKeyLen)
 	activationLock := ilock.NewActivationLock()
 	activationSvc := app.NewActivationService(licenseStore, activationRepo, auditWriter, activationLock)
 	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter, auditWriter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
-	poolSvc.Start(context.Background())
+	poolCtx, poolCancel := context.WithCancel(context.Background())
+	poolSvc.Start(poolCtx)
 
 	// Audit query service (admin read path only)
 	auditQuery := audit.NewQueryService(pool)
@@ -199,5 +217,52 @@ func New() (*fiber.App, *configs.Config) {
 	// Setup routes with injected config and services (extended)
 	http.SetupRoutesV2(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo)
 
-	return appInstance, cfg
+	return &Server{
+		app:         appInstance,
+		cfg:         cfg,
+		db:          pool,
+		pool:        poolSvc,
+		poolCtx:     poolCtx,
+		poolCancel:  poolCancel,
+		auditWriter: auditWriter,
+		auditQueue:  auditCh,
+		auditWorker: auditWorker,
+	}, cfg
+}
+
+// Listen wraps Fiber's Listen with app-level configuration.
+func (s *Server) Listen(addr string, cfg fiber.ListenConfig) error {
+	return s.app.Listen(addr, cfg)
+}
+
+// Shutdown performs an ordered, timeout-aware shutdown.
+func (s *Server) Shutdown(ctx context.Context) {
+	// 1) Stop accepting HTTP connections
+	log.Println("shutdown: stopping http server")
+	if err := s.app.ShutdownWithContext(ctx); err != nil {
+		log.Printf("shutdown: http server error: %v", err)
+	}
+
+	// 2) Stop accepting new jobs and drain workers with respect to timeout
+	// Drain closes the internal queue and waits on worker waitgroup.
+	log.Println("shutdown: draining workers")
+	s.pool.Drain(ctx)
+
+	// 3) Cancel worker context to stop any restart loops and exit goroutines
+	s.poolCancel()
+
+	// 4) Flush the audit writer with its own short timeout window
+	log.Println("shutdown: flushing audit logs")
+	timeout := s.cfg.AuditFlushTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	auditCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	s.auditWriter.FlushWithContext(auditCtx)
+
+	// 5) Close DB connection pool last
+	log.Println("shutdown: closing database")
+	s.db.Close()
+	log.Println("shutdown: complete")
 }

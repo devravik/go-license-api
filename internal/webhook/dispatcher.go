@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
-	"github.com/devravik/go-license-api/internal/infrastructure/crypto"
+	"github.com/devravik/go-license-api/internal/security"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

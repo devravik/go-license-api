@@ -2,16 +2,16 @@ package handlers
 
 import (
 	"context"
-	"github.com/devravik/go-license-api/configs"
 	"github.com/devravik/go-license-api/internal/audit"
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
-	"github.com/devravik/go-license-api/internal/infrastructure/crypto"
+	"github.com/devravik/go-license-api/internal/security"
+	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/devravik/go-license-api/internal/worker"
 )
 
 type Handler struct {
-	Cfg               *configs.Config
+	Cfg               *setup.Config
 	ValidationService app.ValidationService
 	ActivationService app.ActivationService
 	AdminService      app.AdminService
@@ -29,7 +29,7 @@ type WebhookWriter interface {
 }
 
 func NewHandler(
-	cfg *configs.Config,
+	cfg *setup.Config,
 	valSvc app.ValidationService,
 	activationSvc app.ActivationService,
 	adminSvc app.AdminService,
