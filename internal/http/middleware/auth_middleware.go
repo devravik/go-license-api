@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net"
 	"strings"
 
@@ -8,9 +9,13 @@ import (
 )
 
 func AdminKeyGuard(adminKey string) fiber.Handler {
+	if strings.TrimSpace(adminKey) == "" {
+		panic("ADMIN_API_KEY must be set")
+	}
+
 	return func(c fiber.Ctx) error {
 		header := strings.TrimSpace(c.Get("X-Admin-Key"))
-		if header == "" || header != adminKey {
+		if header == "" || subtle.ConstantTimeCompare([]byte(header), []byte(adminKey)) != 1 {
 			return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
 				Valid: false,
 				Error: "invalid_admin_key",

@@ -47,17 +47,49 @@ func (m *mockValidationService) Validate(ctx context.Context, tenantID, apiKey, 
 type mockAdminService struct {
 	revokeErr  error
 	suspendErr error
+	reinstateErr error
+	deleteErr error
 	rotateErr  error
+	createErr error
+	updateLimitsErr error
+	updateIPAllowlistErr error
 }
 
+func (m *mockAdminService) CreateTenant(_ context.Context, rps, burst int) (*domain.Tenant, string, error) {
+	if m.createErr != nil {
+		return nil, "", m.createErr
+	}
+	return &domain.Tenant{
+		ID:     "t-created",
+		APIKey: "generated-key",
+		RPS:    rps,
+		Burst:  burst,
+		Status: "active",
+	}, "generated-key", nil
+}
 func (m *mockAdminService) RevokeLicense(_ context.Context, tenantID, key string) error {
 	return m.revokeErr
 }
 func (m *mockAdminService) SuspendTenant(_ context.Context, tenantID, reason string) error {
 	return m.suspendErr
 }
-func (m *mockAdminService) RotateTenantAPIKey(_ context.Context, tenantID, newKey string, gracePeriod time.Duration) error {
-	return m.rotateErr
+func (m *mockAdminService) ReinstateTenant(_ context.Context, tenantID string) error {
+	return m.reinstateErr
+}
+func (m *mockAdminService) DeleteTenant(_ context.Context, tenantID string) error {
+	return m.deleteErr
+}
+func (m *mockAdminService) RotateTenantAPIKey(_ context.Context, tenantID string, gracePeriod time.Duration) (string, time.Time, error) {
+	if m.rotateErr != nil {
+		return "", time.Time{}, m.rotateErr
+	}
+	return "new-generated-key", time.Now().Add(gracePeriod), nil
+}
+func (m *mockAdminService) UpdateTenantLimits(_ context.Context, tenantID string, rps, burst int) error {
+	return m.updateLimitsErr
+}
+func (m *mockAdminService) UpdateTenantIPAllowlist(_ context.Context, tenantID string, cidrs []string) error {
+	return m.updateIPAllowlistErr
 }
 
 func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminService) *fiber.App {
@@ -214,10 +246,16 @@ func TestAdminMutations_Success(t *testing.T) {
 		method string
 		path   string
 		body   string
+		status int
 	}{
-		{"POST", "/admin/licenses/revoke", `{"tenant_id":"t1","key":"k1"}`},
-		{"POST", "/admin/tenants/t1/suspend", `{"reason":"fraud"}`},
-		{"POST", "/admin/tenants/t1/rotate_key", `{"new_key":"new-abc"}`},
+		{"POST", "/admin/tenants", `{"rps":100,"burst":200}`, 201},
+		{"POST", "/admin/licenses/revoke", `{"tenant_id":"t1","key":"k1"}`, 200},
+		{"POST", "/admin/tenants/t1/suspend", `{"reason":"fraud"}`, 200},
+		{"POST", "/admin/tenants/t1/reinstate", `{}`, 200},
+		{"POST", "/admin/tenants/t1/rotate-key", `{"grace_minutes":60}`, 200},
+		{"PATCH", "/admin/tenants/t1/limits", `{"rps":50,"burst":100}`, 200},
+		{"POST", "/admin/tenants/t1/ip-allowlist", `{"cidrs":["127.0.0.1/32"]}`, 200},
+		{"DELETE", "/admin/tenants/t1", ``, 204},
 	}
 
 	for _, tc := range tests {
@@ -228,8 +266,8 @@ func TestAdminMutations_Success(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s %s failed: %v", tc.method, tc.path, err)
 		}
-		if res.StatusCode != 200 {
-			t.Fatalf("%s %s expected 200, got %d", tc.method, tc.path, res.StatusCode)
+		if res.StatusCode != tc.status {
+			t.Fatalf("%s %s expected %d, got %d", tc.method, tc.path, tc.status, res.StatusCode)
 		}
 	}
 }

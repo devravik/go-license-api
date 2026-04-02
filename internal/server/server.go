@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"strings"
@@ -12,10 +13,13 @@ import (
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	"github.com/devravik/go-license-api/internal/audit"
 	iaudit "github.com/devravik/go-license-api/internal/infrastructure/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
+	icrypto "github.com/devravik/go-license-api/internal/infrastructure/crypto"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
 	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
+	"github.com/devravik/go-license-api/internal/webhook"
 	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -157,12 +161,43 @@ func New() (*fiber.App, *configs.Config) {
 	valSvc := app.NewValidationService(tenantStore, licenseStore, auditCh, cfg.MinLicenseKeyLen)
 	activationLock := ilock.NewActivationLock()
 	activationSvc := app.NewActivationService(licenseStore, activationRepo, auditWriter, activationLock)
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter)
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter, auditWriter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
 	poolSvc.Start(context.Background())
 
-	// Setup routes with injected config and services
-	http.SetupRoutes(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter)
+	// Audit query service (admin read path only)
+	auditQuery := audit.NewQueryService(pool)
+
+	// Initialize signing keys and registry (global keypair at startup).
+	_, priv, err := icrypto.GenerateEd25519KeyPair()
+	if err != nil {
+		log.Fatalf("generate signing keypair: %v", err)
+	}
+	globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
+	signerRegistry := icrypto.NewSignerRegistry(globalSigner)
+
+	// Initialize webhook dispatcher and cache (optional feature).
+	var webhookEncKey []byte
+	if strings.TrimSpace(cfg.WebhookEncKeyHex) != "" {
+		dec, err := hex.DecodeString(cfg.WebhookEncKeyHex)
+		if err != nil || len(dec) != 32 {
+			log.Printf("invalid WEBHOOK_ENCRYPTION_KEY; webhooks disabled")
+		} else {
+			webhookEncKey = dec
+		}
+	}
+	var dispatcher *webhook.Dispatcher
+	if webhookEncKey != nil {
+		dispatcher = webhook.NewDispatcher(pool, webhookEncKey)
+		// best-effort cache load
+		if err := dispatcher.LoadWebhooks(context.Background()); err != nil {
+			log.Printf("webhook load failed: %v", err)
+		}
+	}
+	webhookRepo := idb.NewWebhookRepo(pool)
+
+	// Setup routes with injected config and services (extended)
+	http.SetupRoutesV2(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo)
 
 	return appInstance, cfg
 }

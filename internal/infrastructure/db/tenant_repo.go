@@ -112,6 +112,16 @@ func (r *tenantRepo) UpdateStatus(ctx context.Context, id, status string) error 
 	return err
 }
 
+func (r *tenantRepo) UpdateLimits(ctx context.Context, id string, rps, burst int) error {
+	const q = `
+		UPDATE tenants
+		SET rps = $1, burst = $2
+		WHERE id = $3
+	`
+	_, err := r.db.Exec(ctx, q, rps, burst, id)
+	return err
+}
+
 func (r *tenantRepo) UpdateIPAllowlist(ctx context.Context, id string, cidrs []string) error {
 	const q = `UPDATE tenants SET ip_allowlist = $1 WHERE id = $2`
 	_, err := r.db.Exec(ctx, q, cidrs, id)

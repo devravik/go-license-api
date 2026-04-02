@@ -2,16 +2,25 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/google/uuid"
 )
 
 type AdminService interface {
+	CreateTenant(ctx context.Context, rps, burst int) (*domain.Tenant, string, error)
 	RevokeLicense(ctx context.Context, tenantID, key string) error
 	SuspendTenant(ctx context.Context, tenantID, reason string) error
-	RotateTenantAPIKey(ctx context.Context, tenantID, newKey string, gracePeriod time.Duration) error
+	ReinstateTenant(ctx context.Context, tenantID string) error
+	DeleteTenant(ctx context.Context, tenantID string) error
+	RotateTenantAPIKey(ctx context.Context, tenantID string, gracePeriod time.Duration) (string, time.Time, error)
+	UpdateTenantLimits(ctx context.Context, tenantID string, rps, burst int) error
+	UpdateTenantIPAllowlist(ctx context.Context, tenantID string, cidrs []string) error
 }
 
 type LicenseCache interface {
@@ -35,10 +44,51 @@ type adminService struct {
 	licCache LicenseCache
 	tenCache TenantCache
 	limiter  RateLimiterCache
+	auditor  domain.AuditWriter
 }
 
-func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache, limiter RateLimiterCache) AdminService {
-	return &adminService{licenses: licenses, tenants: tenants, licCache: licCache, tenCache: tenCache, limiter: limiter}
+func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache, limiter RateLimiterCache, auditor domain.AuditWriter) AdminService {
+	return &adminService{licenses: licenses, tenants: tenants, licCache: licCache, tenCache: tenCache, limiter: limiter, auditor: auditor}
+}
+
+func generateAPIKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func (s *adminService) CreateTenant(ctx context.Context, rps, burst int) (*domain.Tenant, string, error) {
+	if rps <= 0 || burst <= 0 {
+		return nil, "", errors.New("invalid_limits")
+	}
+
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		return nil, "", fmt.Errorf("generate api key: %w", err)
+	}
+
+	tenant := &domain.Tenant{
+		ID:     uuid.New().String(),
+		APIKey: apiKey,
+		RPS:    rps,
+		Burst:  burst,
+		Status: "active",
+	}
+	if err := s.tenants.Create(ctx, tenant); err != nil {
+		return nil, "", fmt.Errorf("create tenant: %w", err)
+	}
+
+	s.tenCache.Set(ctx, tenant.ID, tenant.APIKey, tenant)
+	s.limiter.Invalidate(tenant.ID)
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenant.ID,
+		Event:      domain.EventTenantCreated,
+		ResourceID: tenant.ID,
+		Outcome:    "success",
+	})
+	return tenant, apiKey, nil
 }
 
 func (s *adminService) RevokeLicense(ctx context.Context, tenantID, key string) error {
@@ -69,23 +119,95 @@ func (s *adminService) SuspendTenant(ctx context.Context, tenantID, reason strin
 		s.limiter.Invalidate(tenantID)
 	}
 	_ = reason // reserved for future audit logging
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      domain.EventTenantSuspended,
+		ResourceID: tenantID,
+		Outcome:    "success",
+	})
 	return nil
 }
 
-func (s *adminService) RotateTenantAPIKey(ctx context.Context, tenantID, newKey string, gracePeriod time.Duration) error {
-	if err := s.tenants.RotateAPIKey(ctx, tenantID, newKey, gracePeriod); err != nil {
-		return fmt.Errorf("rotate api key: %w", err)
+func (s *adminService) ReinstateTenant(ctx context.Context, tenantID string) error {
+	if err := s.tenants.UpdateStatus(ctx, tenantID, "active"); err != nil {
+		return fmt.Errorf("reinstate tenant: %w", err)
 	}
-	t, err := s.tenants.FindByID(ctx, tenantID)
-	if err != nil {
-		return fmt.Errorf("fetch tenant after rotate: %w", err)
-	}
-	// Post-commit consistency: clear stale keys then write-through current keys.
 	s.tenCache.InvalidateByTenantID(ctx, tenantID)
-	s.tenCache.Set(ctx, tenantID, t.APIKey, t)
-	if t.OldAPIKey != "" {
-		s.tenCache.Set(ctx, tenantID, t.OldAPIKey, t)
-	}
 	s.limiter.Invalidate(tenantID)
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      domain.EventTenantReinstated,
+		ResourceID: tenantID,
+		Outcome:    "success",
+	})
+	return nil
+}
+
+func (s *adminService) DeleteTenant(ctx context.Context, tenantID string) error {
+	if err := s.tenants.UpdateStatus(ctx, tenantID, "deleted"); err != nil {
+		return fmt.Errorf("delete tenant: %w", err)
+	}
+	s.tenCache.InvalidateByTenantID(ctx, tenantID)
+	s.limiter.Invalidate(tenantID)
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      domain.EventTenantDeleted,
+		ResourceID: tenantID,
+		Outcome:    "success",
+	})
+	return nil
+}
+
+func (s *adminService) RotateTenantAPIKey(ctx context.Context, tenantID string, gracePeriod time.Duration) (string, time.Time, error) {
+	newKey, err := generateAPIKey()
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("generate api key: %w", err)
+	}
+
+	if err := s.tenants.RotateAPIKey(ctx, tenantID, newKey, gracePeriod); err != nil {
+		return "", time.Time{}, fmt.Errorf("rotate api key: %w", err)
+	}
+	s.tenCache.InvalidateByTenantID(ctx, tenantID)
+	s.limiter.Invalidate(tenantID)
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      domain.EventTenantKeyRotated,
+		ResourceID: tenantID,
+		Outcome:    "success",
+	})
+
+	return newKey, time.Now().Add(gracePeriod), nil
+}
+
+func (s *adminService) UpdateTenantLimits(ctx context.Context, tenantID string, rps, burst int) error {
+	if rps <= 0 || burst <= 0 {
+		return errors.New("invalid_limits")
+	}
+	if err := s.tenants.UpdateLimits(ctx, tenantID, rps, burst); err != nil {
+		return fmt.Errorf("update tenant limits: %w", err)
+	}
+	s.tenCache.InvalidateByTenantID(ctx, tenantID)
+	s.limiter.Invalidate(tenantID)
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      domain.EventTenantLimitsUpdated,
+		ResourceID: tenantID,
+		Outcome:    "success",
+	})
+	return nil
+}
+
+func (s *adminService) UpdateTenantIPAllowlist(ctx context.Context, tenantID string, cidrs []string) error {
+	if err := s.tenants.UpdateIPAllowlist(ctx, tenantID, cidrs); err != nil {
+		return fmt.Errorf("update tenant ip allowlist: %w", err)
+	}
+	s.tenCache.InvalidateByTenantID(ctx, tenantID)
+	s.limiter.Invalidate(tenantID)
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      domain.EventTenantIPAllowlistUpdated,
+		ResourceID: tenantID,
+		Outcome:    "success",
+	})
 	return nil
 }

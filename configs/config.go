@@ -28,6 +28,7 @@ type Config struct {
 	AuditRetryCount   int
 	AuditRetryDelay   time.Duration
 	AdminAllowedCIDRs []string
+	WebhookEncKeyHex  string
 }
 
 func Load() *Config {
@@ -38,7 +39,7 @@ func Load() *Config {
 	cfg := &Config{
 		AppName:           getEnv("APP_NAME", "Go License API"),
 		AppPort:           getEnv("APP_PORT", "8080"),
-		AdminKey:          getEnv("ADMIN_API_KEY", "secret-admin-key"),
+		AdminKey:          getEnv("ADMIN_API_KEY", ""),
 		AppMode:           getEnv("APP_MODE", "single"),
 		AppEnv:            getEnv("APP_ENV", "develop"),
 		JSONEngine:        getEnv("JSON_ENGINE", "std"),
@@ -53,6 +54,7 @@ func Load() *Config {
 		AuditRetryCount:   getEnvInt("AUDIT_RETRY_COUNT", 1),
 		AuditRetryDelay:   getEnvDuration("AUDIT_RETRY_DELAY", 50*time.Millisecond),
 		AdminAllowedCIDRs: getEnvCSV("ADMIN_ALLOWED_CIDRS"),
+		WebhookEncKeyHex:  getEnv("WEBHOOK_ENCRYPTION_KEY", ""),
 	}
 	if cfg.WorkerTimeout > cfg.ValidationTimeout {
 		cfg.WorkerTimeout = cfg.ValidationTimeout
@@ -65,6 +67,9 @@ func Load() *Config {
 	}
 	if cfg.AuditQueueSize < cfg.WorkerCount*100 {
 		cfg.AuditQueueSize = cfg.WorkerCount * 100
+	}
+	if strings.TrimSpace(cfg.AdminKey) == "" {
+		log.Fatal("ADMIN_API_KEY is required")
 	}
 	return cfg
 }

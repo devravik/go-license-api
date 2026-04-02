@@ -21,6 +21,7 @@ type TenantRepository interface {
 	FindAll(ctx context.Context) ([]*Tenant, error)
 	Create(ctx context.Context, t *Tenant) error
 	UpdateStatus(ctx context.Context, id, status string) error
+	UpdateLimits(ctx context.Context, id string, rps, burst int) error
 	UpdateIPAllowlist(ctx context.Context, id string, cidrs []string) error
 	RotateAPIKey(ctx context.Context, id, newKey string, gracePeriod time.Duration) error
 }
