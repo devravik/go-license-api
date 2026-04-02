@@ -25,8 +25,10 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 	}
 
 	apiKey, _ := c.Locals("api_key").(string)
+	tenantID, _ := c.Locals("tenant_id").(string)
 	resultCh := make(chan worker.Result, 1)
 	job := &worker.ValidateJob{
+		TenantID:   tenantID,
 		APIKey:     apiKey,
 		LicenseKey: req.Key,
 		Product:    req.Product,

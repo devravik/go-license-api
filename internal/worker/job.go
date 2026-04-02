@@ -20,6 +20,7 @@ type Job interface {
 }
 
 type ValidateJob struct {
+	TenantID   string
 	APIKey     string
 	LicenseKey string
 	Product    string
@@ -28,7 +29,7 @@ type ValidateJob struct {
 }
 
 func (j *ValidateJob) Execute(w *worker, ctx context.Context) {
-	res, err := w.validation.Validate(ctx, j.APIKey, j.LicenseKey, j.Product)
+	res, err := w.validation.Validate(ctx, j.TenantID, j.APIKey, j.LicenseKey, j.Product)
 	out := Result{Err: err}
 	if res != nil {
 		out.ValidationResult = *res

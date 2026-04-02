@@ -10,10 +10,14 @@ import (
 	"github.com/devravik/go-license-api/configs"
 	"github.com/devravik/go-license-api/internal/domain"
 	httpapi "github.com/devravik/go-license-api/internal/http"
+	"github.com/devravik/go-license-api/internal/http/middleware"
+	"github.com/devravik/go-license-api/internal/infrastructure/cache"
+	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 )
 
 type mockValidationService struct {
+	lastTenantID string
 	lastAPIKey string
 	lastKey    string
 	lastProd   string
@@ -21,7 +25,8 @@ type mockValidationService struct {
 	err        error
 }
 
-func (m *mockValidationService) Validate(_ context.Context, apiKey, key, product string) (*domain.ValidationResult, error) {
+func (m *mockValidationService) Validate(_ context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
+	m.lastTenantID = tenantID
 	m.lastAPIKey = apiKey
 	m.lastKey = key
 	m.lastProd = product
@@ -50,18 +55,34 @@ func (m *mockAdminService) RotateTenantAPIKey(_ context.Context, tenantID, newKe
 func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminService) *fiber.App {
 	t.Helper()
 	cfg := &configs.Config{
-		AppName:    "Go License API",
-		AppPort:    "8080",
-		AdminKey:   "test-admin-key",
-		AppMode:    "single",
-		AppEnv:     "test",
-		JSONEngine: "std",
+		AppName:           "Go License API",
+		AppPort:           "8080",
+		AdminKey:          "test-admin-key",
+		AppMode:           "multi",
+		AppEnv:            "test",
+		JSONEngine:        "std",
+		WorkerCount:       1,
+		WorkerQueueSize:   8,
+		AdminAllowedCIDRs: nil,
 	}
-	// middleware.Auth uses configs.Load() (env-backed)
-	t.Setenv("ADMIN_API_KEY", cfg.AdminKey)
 
 	app := fiber.New()
-	httpapi.SetupRoutes(app, cfg, val, admin)
+	l1, err := cache.NewL1Cache(1000)
+	if err != nil {
+		t.Fatalf("new l1 cache: %v", err)
+	}
+	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
+	tenantStore.Set(context.Background(), "t1", "tenant-key", &domain.Tenant{
+		ID:     "t1",
+		APIKey: "tenant-key",
+		RPS:    100,
+		Burst:  200,
+		Status: "active",
+	})
+
+	pool := worker.NewPool(1, 8, val)
+	pool.Start(context.Background())
+	httpapi.SetupRoutes(app, cfg, val, admin, pool, tenantStore, middleware.NewRateLimiter())
 	return app
 }
 
@@ -113,7 +134,8 @@ func TestValidateRoute_Success(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Api-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "t1")
+	req.Header.Set("X-API-Key", "tenant-key")
 
 	res, err := app.Test(req)
 	if err != nil {
@@ -122,7 +144,7 @@ func TestValidateRoute_Success(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	if val.lastAPIKey != "tenant-key" || val.lastKey != "abc-123" || val.lastProd != "pro" {
+	if val.lastTenantID != "t1" || val.lastAPIKey != "tenant-key" || val.lastKey != "abc-123" || val.lastProd != "pro" {
 		t.Fatalf("validation service called with unexpected args: %+v", val)
 	}
 }
@@ -132,7 +154,8 @@ func TestValidateRoute_KeyRequired(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Api-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "t1")
+	req.Header.Set("X-API-Key", "tenant-key")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("validate request failed: %v", err)

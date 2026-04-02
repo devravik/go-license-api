@@ -57,3 +57,26 @@ func (c *L1Cache) InvalidateAll(_ context.Context, prefix string) {
 		}
 	}
 }
+
+// CleanupExpired removes up to limit expired entries to smooth cleanup cost.
+func (c *L1Cache) CleanupExpired(limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	now := time.Now()
+	removed := 0
+	for _, k := range c.lru.Keys() {
+		if removed >= limit {
+			break
+		}
+		entry, ok := c.lru.Peek(k)
+		if !ok || entry == nil {
+			continue
+		}
+		if entry.IsExpired(now) {
+			c.lru.Remove(k)
+			removed++
+		}
+	}
+	return removed
+}

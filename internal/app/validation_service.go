@@ -7,7 +7,7 @@ import (
 )
 
 type ValidationService interface {
-	Validate(ctx context.Context, apiKey, key, product string) (*domain.ValidationResult, error)
+	Validate(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error)
 }
 
 type validationService struct {
@@ -16,7 +16,7 @@ type validationService struct {
 }
 
 type TenantStore interface {
-	GetByAPIKey(ctx context.Context, apiKey string) (*domain.Tenant, error)
+	Get(ctx context.Context, tenantID, apiKey string) (*domain.Tenant, error)
 }
 
 type LicenseStore interface {
@@ -27,12 +27,12 @@ func NewValidationService(tenants TenantStore, licenses LicenseStore) Validation
 	return &validationService{tenants: tenants, licenses: licenses}
 }
 
-func (s *validationService) Validate(ctx context.Context, apiKey, key, product string) (*domain.ValidationResult, error) {
-	if apiKey == "" || key == "" {
+func (s *validationService) Validate(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
+	if tenantID == "" || apiKey == "" || key == "" {
 		return &domain.ValidationResult{Valid: false, Error: "invalid_request"}, nil
 	}
 
-	tenant, err := s.tenants.GetByAPIKey(ctx, apiKey)
+	tenant, err := s.tenants.Get(ctx, tenantID, apiKey)
 	if err != nil {
 		return &domain.ValidationResult{Valid: false, Error: "invalid_tenant"}, nil
 	}

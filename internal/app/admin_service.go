@@ -20,8 +20,13 @@ type LicenseCache interface {
 }
 
 type TenantCache interface {
-	Set(ctx context.Context, apiKey string, tenant *domain.Tenant)
-	Invalidate(ctx context.Context, apiKey string)
+	Set(ctx context.Context, tenantID, apiKey string, tenant *domain.Tenant)
+	Invalidate(ctx context.Context, tenantID, apiKey string)
+	InvalidateByTenantID(ctx context.Context, tenantID string)
+}
+
+type RateLimiterCache interface {
+	Invalidate(tenantID string)
 }
 
 type adminService struct {
@@ -29,10 +34,11 @@ type adminService struct {
 	tenants  domain.TenantRepository
 	licCache LicenseCache
 	tenCache TenantCache
+	limiter  RateLimiterCache
 }
 
-func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache) AdminService {
-	return &adminService{licenses: licenses, tenants: tenants, licCache: licCache, tenCache: tenCache}
+func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache, limiter RateLimiterCache) AdminService {
+	return &adminService{licenses: licenses, tenants: tenants, licCache: licCache, tenCache: tenCache, limiter: limiter}
 }
 
 func (s *adminService) RevokeLicense(ctx context.Context, tenantID, key string) error {
@@ -58,10 +64,9 @@ func (s *adminService) SuspendTenant(ctx context.Context, tenantID, reason strin
 	// Invalidate tenant API keys from cache (best effort).
 	t, err := s.tenants.FindByID(ctx, tenantID)
 	if err == nil && t != nil {
-		s.tenCache.Invalidate(ctx, t.APIKey)
-		if t.OldAPIKey != "" {
-			s.tenCache.Invalidate(ctx, t.OldAPIKey)
-		}
+		s.tenCache.InvalidateByTenantID(ctx, tenantID)
+		s.tenCache.Invalidate(ctx, tenantID, t.APIKey)
+		s.limiter.Invalidate(tenantID)
 	}
 	_ = reason // reserved for future audit logging
 	return nil
@@ -75,10 +80,12 @@ func (s *adminService) RotateTenantAPIKey(ctx context.Context, tenantID, newKey 
 	if err != nil {
 		return fmt.Errorf("fetch tenant after rotate: %w", err)
 	}
-	// Write-through for both keys.
-	s.tenCache.Set(ctx, t.APIKey, t)
+	// Post-commit consistency: clear stale keys then write-through current keys.
+	s.tenCache.InvalidateByTenantID(ctx, tenantID)
+	s.tenCache.Set(ctx, tenantID, t.APIKey, t)
 	if t.OldAPIKey != "" {
-		s.tenCache.Set(ctx, t.OldAPIKey, t)
+		s.tenCache.Set(ctx, tenantID, t.OldAPIKey, t)
 	}
+	s.limiter.Invalidate(tenantID)
 	return nil
 }

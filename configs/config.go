@@ -4,20 +4,22 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	AppName         string
-	AppPort         string
-	AdminKey        string
-	AppMode         string
-	AppEnv          string
-	JSONEngine      string
-	WorkerCount     int
-	WorkerQueueSize int
+	AppName           string
+	AppPort           string
+	AdminKey          string
+	AppMode           string
+	AppEnv            string
+	JSONEngine        string
+	WorkerCount       int
+	WorkerQueueSize   int
+	AdminAllowedCIDRs []string
 }
 
 func Load() *Config {
@@ -26,14 +28,15 @@ func Load() *Config {
 	}
 
 	return &Config{
-		AppName:         getEnv("APP_NAME", "Go License API"),
-		AppPort:         getEnv("APP_PORT", "8080"),
-		AdminKey:        getEnv("ADMIN_API_KEY", "secret-admin-key"),
-		AppMode:         getEnv("APP_MODE", "single"),
-		AppEnv:          getEnv("APP_ENV", "develop"),
-		JSONEngine:      getEnv("JSON_ENGINE", "std"),
-		WorkerCount:     getEnvInt("WORKER_COUNT", 8),
-		WorkerQueueSize: getEnvInt("WORKER_QUEUE_SIZE", 500),
+		AppName:           getEnv("APP_NAME", "Go License API"),
+		AppPort:           getEnv("APP_PORT", "8080"),
+		AdminKey:          getEnv("ADMIN_API_KEY", "secret-admin-key"),
+		AppMode:           getEnv("APP_MODE", "single"),
+		AppEnv:            getEnv("APP_ENV", "develop"),
+		JSONEngine:        getEnv("JSON_ENGINE", "std"),
+		WorkerCount:       getEnvInt("WORKER_COUNT", 8),
+		WorkerQueueSize:   getEnvInt("WORKER_QUEUE_SIZE", 500),
+		AdminAllowedCIDRs: getEnvCSV("ADMIN_ALLOWED_CIDRS"),
 	}
 }
 
@@ -77,4 +80,20 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func getEnvCSV(key string) []string {
+	v := getEnv(key, "")
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		item := strings.TrimSpace(p)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

@@ -9,8 +9,6 @@ import (
 
 // TenantStore is cache-only on Get(); it never queries PostgreSQL.
 // Tenant lookups in the validation path MUST use this store.
-//
-// Keying: tenant cache uses tenantID = "tenant" and key = apiKey, so keys follow tenantID:key format.
 type TenantStore struct {
 	l1 *L1Cache
 	l2 *L2Cache // optional
@@ -20,18 +18,20 @@ type TenantStore struct {
 }
 
 func NewTenantStore(l1 *L1Cache, l2 *L2Cache, ttl, ttlNegative time.Duration) *TenantStore {
-	return &TenantStore{l1: l1, l2: l2, ttl: ttl, ttlNegative: ttlNegative}
+	s := &TenantStore{l1: l1, l2: l2, ttl: ttl, ttlNegative: ttlNegative}
+	go s.cleanupLoop()
+	return s
 }
 
 func (s *TenantStore) HasL2() bool { return s.l2 != nil }
 
-func (s *TenantStore) cacheKey(apiKey string) string {
-	return cacheKey("tenant", apiKey)
+func (s *TenantStore) cacheKey(tenantID, apiKey string) string {
+	return cacheKey(tenantID, apiKey)
 }
 
-// GetByAPIKey is cache-only. Miss => invalid tenant.
-func (s *TenantStore) GetByAPIKey(ctx context.Context, apiKey string) (*domain.Tenant, error) {
-	ck := s.cacheKey(apiKey)
+// Get is cache-only in validation path. Miss => invalid tenant.
+func (s *TenantStore) Get(ctx context.Context, tenantID, apiKey string) (*domain.Tenant, error) {
+	ck := s.cacheKey(tenantID, apiKey)
 
 	if entry, ok := s.l1.Get(ctx, ck); ok {
 		if entry.Negative {
@@ -67,20 +67,29 @@ func (s *TenantStore) GetByAPIKey(ctx context.Context, apiKey string) (*domain.T
 }
 
 // Set performs write-through for tenant updates (API key rotation, status changes, etc).
-func (s *TenantStore) Set(ctx context.Context, apiKey string, tenant *domain.Tenant) {
-	ck := s.cacheKey(apiKey)
+func (s *TenantStore) Set(ctx context.Context, tenantID, apiKey string, tenant *domain.Tenant) {
+	ck := s.cacheKey(tenantID, apiKey)
 	s.l1.Set(ctx, ck, &CacheEntry{Value: tenant}, s.ttl)
 	if s.l2 != nil {
 		s.l2.Set(ctx, ck, &CacheEntry{Value: tenant}, s.ttl)
 	}
 }
 
-func (s *TenantStore) Invalidate(ctx context.Context, apiKey string) {
-	ck := s.cacheKey(apiKey)
+func (s *TenantStore) Invalidate(ctx context.Context, tenantID, apiKey string) {
+	ck := s.cacheKey(tenantID, apiKey)
 	s.l1.Invalidate(ctx, "", ck)
 	if s.l2 != nil {
 		s.l2.Invalidate(ctx, "", ck)
 		s.l2.Publish(ctx, "cache:invalidate", ck)
+	}
+}
+
+func (s *TenantStore) InvalidateByTenantID(ctx context.Context, tenantID string) {
+	prefix := redisPrefix + tenantID + ":"
+	s.l1.InvalidateAll(ctx, prefix)
+	if s.l2 != nil {
+		s.l2.InvalidateAll(ctx, prefix)
+		s.l2.Publish(ctx, "cache:invalidate", prefix)
 	}
 }
 
@@ -89,10 +98,21 @@ func (s *TenantStore) SubscribeInvalidation(ctx context.Context) {
 		return
 	}
 	s.l2.Subscribe(ctx, "cache:invalidate", func(payload string) {
-		// Only invalidate if this key is a tenant key.
-		// (License invalidations will also arrive on this channel.)
-		if len(payload) >= len(redisPrefix+"tenant:") && payload[:len(redisPrefix+"tenant:")] == redisPrefix+"tenant:" {
+		if len(payload) >= len(redisPrefix) && payload[:len(redisPrefix)] == redisPrefix {
+			// Prefix payload means tenant-wide invalidation.
+			if payload[len(payload)-1] == ':' {
+				s.l1.InvalidateAll(ctx, payload)
+				return
+			}
 			s.l1.Invalidate(ctx, "", payload)
 		}
 	})
+}
+
+func (s *TenantStore) cleanupLoop() {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.l1.CleanupExpired(1000)
+	}
 }

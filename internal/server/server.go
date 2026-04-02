@@ -10,6 +10,7 @@ import (
 	"github.com/devravik/go-license-api/configs"
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/http"
+	"github.com/devravik/go-license-api/internal/http/middleware"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
 	"github.com/devravik/go-license-api/internal/worker"
@@ -136,21 +137,22 @@ func New() (*fiber.App, *configs.Config) {
 			}
 			for i := 0; i < n; i++ {
 				t := tenants[i]
-				tenantStore.Set(wctx, t.APIKey, t)
+				tenantStore.Set(wctx, t.ID, t.APIKey, t)
 				if t.OldAPIKey != "" {
-					tenantStore.Set(wctx, t.OldAPIKey, t)
+					tenantStore.Set(wctx, t.ID, t.OldAPIKey, t)
 				}
 			}
 		}
 	}
 
+	rateLimiter := middleware.NewRateLimiter()
 	valSvc := app.NewValidationService(tenantStore, licenseStore)
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore)
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc)
 	poolSvc.Start(context.Background())
 
 	// Setup routes with injected config and services
-	http.SetupRoutes(appInstance, cfg, valSvc, adminSvc, poolSvc)
+	http.SetupRoutes(appInstance, cfg, valSvc, adminSvc, poolSvc, tenantStore, rateLimiter)
 
 	return appInstance, cfg
 }

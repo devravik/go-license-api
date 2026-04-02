@@ -7,12 +7,13 @@ import (
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/timeout"
 )
 
-func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationService, adminSvc app.AdminService, pool *worker.Pool) {
+func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationService, adminSvc app.AdminService, pool *worker.Pool, tenantStore *cache.TenantStore, rateLimiter *middleware.RateLimiter) {
 	h := handlers.NewHandler(cfg, valSvc, adminSvc, pool)
 
 	// Landing Page
@@ -27,13 +28,14 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationServi
 
 	// License Validation (Tenant Protected)
 	licenseGroup := app.Group("/licenses")
-	licenseGroup.Use(middleware.Tenant)
-	licenseGroup.Use(middleware.RateLimit)
+	licenseGroup.Use(middleware.TenantAuth(cfg.AppMode, nil, tenantStore))
+	licenseGroup.Use(rateLimiter.Middleware())
 	licenseGroup.Post("/validate", h.Validate)
 
 	// Admin Control Plane (Protected)
 	adminGroup := app.Group("/admin")
-	adminGroup.Use(middleware.Auth)
+	adminGroup.Use(middleware.AdminCIDRGuard(cfg.AdminAllowedCIDRs))
+	adminGroup.Use(middleware.AdminKeyGuard(cfg.AdminKey))
 	adminGroup.Get("/", h.AdminStatus)
 	adminGroup.Post("/licenses/revoke", h.AdminRevokeLicense)
 	adminGroup.Post("/tenants/:id/suspend", h.AdminSuspendTenant)
