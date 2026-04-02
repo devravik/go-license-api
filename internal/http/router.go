@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log"
 	"time"
 
 	"github.com/devravik/go-license-api/configs"
@@ -13,8 +14,21 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/timeout"
 )
 
-func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationService, adminSvc app.AdminService, pool *worker.Pool, tenantStore *cache.TenantStore, rateLimiter *middleware.RateLimiter) {
-	h := handlers.NewHandler(cfg, valSvc, adminSvc, pool)
+func SetupRoutes(
+	app *fiber.App,
+	cfg *configs.Config,
+	valSvc app.ValidationService,
+	activationSvc app.ActivationService,
+	adminSvc app.AdminService,
+	pool *worker.Pool,
+	tenantStore *cache.TenantStore,
+	rateLimiter *middleware.RateLimiter,
+) {
+	idempCache, err := handlers.NewIdempotencyCache(10_000)
+	if err != nil {
+		log.Printf("idempotency cache disabled: %v", err)
+	}
+	h := handlers.NewHandler(cfg, valSvc, activationSvc, adminSvc, pool, idempCache)
 
 	// Landing Page
 	app.Get("/", timeout.New(h.Home, timeout.Config{
@@ -31,6 +45,8 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationServi
 	licenseGroup.Use(middleware.TenantAuth(cfg.AppMode, nil, tenantStore))
 	licenseGroup.Use(rateLimiter.Middleware())
 	licenseGroup.Post("/validate", h.Validate)
+	licenseGroup.Post("/activate", h.Activate)
+	licenseGroup.Post("/deactivate", h.Deactivate)
 
 	// Admin Control Plane (Protected)
 	adminGroup := app.Group("/admin")

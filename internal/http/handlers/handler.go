@@ -9,15 +9,26 @@ import (
 type Handler struct {
 	Cfg               *configs.Config
 	ValidationService app.ValidationService
+	ActivationService app.ActivationService
 	AdminService      app.AdminService
 	Pool              *worker.Pool
+	IdempCache        *IdempotencyCache
 }
 
-func NewHandler(cfg *configs.Config, valSvc app.ValidationService, adminSvc app.AdminService, pool *worker.Pool) *Handler {
+func NewHandler(
+	cfg *configs.Config,
+	valSvc app.ValidationService,
+	activationSvc app.ActivationService,
+	adminSvc app.AdminService,
+	pool *worker.Pool,
+	idempCache *IdempotencyCache,
+) *Handler {
 	return &Handler{
 		Cfg:               cfg,
 		ValidationService: valSvc,
+		ActivationService: activationSvc,
 		AdminService:      adminSvc,
 		Pool:              pool,
+		IdempCache:        idempCache,
 	}
 }

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,53 +30,50 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 	// Lock the license row for the duration of this transaction.
 	var licenseID int
 	var seatCount *int
+	var status string
+	var expiresAt *time.Time
 	const lockQ = `
-		SELECT id, seat_count
+		SELECT id, seat_count, status, expires_at
 		FROM licenses
-		WHERE tenant_id = $1 AND key = $2 AND status = 'active'
+		WHERE tenant_id = $1 AND key = $2
 		FOR UPDATE
 	`
-	if err := tx.QueryRow(ctx, lockQ, tenantID, key).Scan(&licenseID, &seatCount); err != nil {
+	if err := tx.QueryRow(ctx, lockQ, tenantID, key).Scan(&licenseID, &seatCount, &status, &expiresAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, domain.ErrLicenseNotFound
 		}
 		return 0, fmt.Errorf("lock license: %w", err)
 	}
 
-	// Ensure we never burn a second seat for the same machine/license pair.
-	var (
-		existingID   string
-		existingLive bool
-	)
-	const existingQ = `
-		SELECT id, is_active
-		FROM activations
-		WHERE license_id = $1 AND machine_id = $2
-		LIMIT 1
-	`
-	existingErr := tx.QueryRow(ctx, existingQ, licenseID, record.MachineID).Scan(&existingID, &existingLive)
-	hasExisting := existingErr == nil
-	if existingErr != nil && !errors.Is(existingErr, pgx.ErrNoRows) {
-		return 0, fmt.Errorf("find activation: %w", existingErr)
+	if status != "active" {
+		return 0, domain.ErrLicenseRevoked
+	}
+	if expiresAt != nil && time.Now().After(*expiresAt) {
+		return 0, domain.ErrLicenseExpired
 	}
 
-	// If already active, it's a no-op idempotent replay.
-	if hasExisting && existingLive {
+	// Aggregate active count and duplicate active activation in one query.
+	const usageQ = `
+		SELECT
+			COUNT(*) FILTER (WHERE is_active = TRUE) AS active_count,
+			MAX(CASE WHEN machine_id = $2 AND is_active THEN id END) AS existing_id
+		FROM activations
+		WHERE license_id = $1
+	`
+	var activeCount int
+	var existingID *string
+	if err := tx.QueryRow(ctx, usageQ, licenseID, record.MachineID).Scan(&activeCount, &existingID); err != nil {
+		return 0, fmt.Errorf("activation usage stats: %w", err)
+	}
+	if existingID != nil {
 		if err := tx.Commit(ctx); err != nil {
 			return 0, fmt.Errorf("commit: %w", err)
 		}
-		record.ID = existingID
+		record.ID = *existingID
 		record.LicenseID = licenseID
 		record.TenantID = tenantID
 		record.IsActive = true
 		return 0, nil
-	}
-
-	// Count active seats — safe because we hold the FOR UPDATE lock on the license row.
-	var activeCount int
-	const countQ = `SELECT COUNT(*) FROM activations WHERE license_id = $1 AND is_active = TRUE`
-	if err := tx.QueryRow(ctx, countQ, licenseID).Scan(&activeCount); err != nil {
-		return 0, fmt.Errorf("count seats: %w", err)
 	}
 
 	if seatCount != nil && activeCount >= *seatCount {
@@ -86,34 +85,33 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 		remaining = *seatCount - activeCount - 1
 	}
 
-	if hasExisting && !existingLive {
-		// Reactivation: reuse the existing unique (license_id, machine_id) row.
-		const reactivateQ = `
-			UPDATE activations
-			SET
-				is_active = TRUE,
-				hostname = $1,
-				activated_at = NOW(),
-				released_at = NULL
-			WHERE id = $2
-		`
-		if _, err := tx.Exec(ctx, reactivateQ, record.Hostname, existingID); err != nil {
-			return 0, fmt.Errorf("reactivate activation: %w", err)
-		}
-		record.ID = existingID
-	} else {
-		// First activation: insert a new row.
-		record.LicenseID = licenseID
-		record.TenantID = tenantID
-		record.IsActive = true
+	record.LicenseID = licenseID
+	record.TenantID = tenantID
+	record.IsActive = true
 
-		const insertQ = `
-			INSERT INTO activations (id, license_id, tenant_id, machine_id, hostname, is_active, activated_at)
-			VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
-		`
-		if _, err := tx.Exec(ctx, insertQ, record.ID, licenseID, tenantID, record.MachineID, record.Hostname); err != nil {
-			return 0, fmt.Errorf("insert activation: %w", err)
+	const insertQ = `
+		INSERT INTO activations (id, license_id, tenant_id, machine_id, hostname, is_active, activated_at)
+		VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
+	`
+	if _, err := tx.Exec(ctx, insertQ, record.ID, licenseID, tenantID, record.MachineID, record.Hostname); err != nil {
+		// Insertion can race. If unique index fires, return the existing active row.
+		if isUniqueViolation(err) {
+			const existingQ = `
+				SELECT id
+				FROM activations
+				WHERE license_id = $1 AND machine_id = $2 AND is_active = TRUE
+				LIMIT 1
+			`
+			var uniqID string
+			if qErr := tx.QueryRow(ctx, existingQ, licenseID, record.MachineID).Scan(&uniqID); qErr == nil {
+				if cErr := tx.Commit(ctx); cErr != nil {
+					return 0, fmt.Errorf("commit after unique hit: %w", cErr)
+				}
+				record.ID = uniqID
+				return 0, nil
+			}
 		}
+		return 0, fmt.Errorf("insert activation: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -156,4 +154,9 @@ func (r *activationRepo) RecordUsage(ctx context.Context, licenseID, units int) 
 		return domain.ErrLicenseNotFound
 	}
 	return nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

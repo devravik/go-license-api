@@ -88,13 +88,14 @@ func (s *LicenseStore) Set(ctx context.Context, tenantID, key string, license *d
 }
 
 // Invalidate removes a single license from cache and publishes invalidation for other instances.
-func (s *LicenseStore) Invalidate(ctx context.Context, tenantID, key string) {
+func (s *LicenseStore) Invalidate(ctx context.Context, tenantID, key string) error {
 	ck := cacheKey(tenantID, key)
 	s.l1.Invalidate(ctx, "", ck)
 	if s.l2 != nil {
 		s.l2.Invalidate(ctx, "", ck)
 		s.l2.Publish(ctx, "cache:invalidate", ck)
 	}
+	return nil
 }
 
 // InvalidateTenant removes all cache entries for a tenant and propagates invalidation.

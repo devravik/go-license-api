@@ -15,6 +15,7 @@ import (
 	iaudit "github.com/devravik/go-license-api/internal/infrastructure/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
+	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
 	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -44,7 +45,7 @@ func New() (*fiber.App, *configs.Config) {
 
 	licenseRepo := idb.NewLicenseRepo(pool)
 	tenantRepo := idb.NewTenantRepo(pool)
-	_ = idb.NewActivationRepo(pool)
+	activationRepo := idb.NewActivationRepo(pool)
 
 	fiberCfg := fiber.Config{
 		AppName:      cfg.AppName,
@@ -154,12 +155,14 @@ func New() (*fiber.App, *configs.Config) {
 	auditWorker.Start(context.Background())
 
 	valSvc := app.NewValidationService(tenantStore, licenseStore, auditCh, cfg.MinLicenseKeyLen)
+	activationLock := ilock.NewActivationLock()
+	activationSvc := app.NewActivationService(licenseStore, activationRepo, auditWriter, activationLock)
 	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
 	poolSvc.Start(context.Background())
 
 	// Setup routes with injected config and services
-	http.SetupRoutes(appInstance, cfg, valSvc, adminSvc, poolSvc, tenantStore, rateLimiter)
+	http.SetupRoutes(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter)
 
 	return appInstance, cfg
 }

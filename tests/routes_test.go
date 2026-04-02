@@ -19,11 +19,11 @@ import (
 type mockValidationService struct {
 	lastTenantID string
 	lastAPIKey   string
-	lastKey    string
-	lastProd   string
-	result     *domain.ValidationResult
-	err        error
-	delay      time.Duration
+	lastKey      string
+	lastProd     string
+	result       *domain.ValidationResult
+	err          error
+	delay        time.Duration
 }
 
 func (m *mockValidationService) Validate(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
@@ -97,7 +97,7 @@ func newTestAppWithConfig(t *testing.T, cfg *configs.Config, val *mockValidation
 
 	pool := worker.NewPool(1, 8, val, cfg.WorkerTimeout)
 	pool.Start(context.Background())
-	httpapi.SetupRoutes(app, cfg, val, admin, pool, tenantStore, middleware.NewRateLimiter())
+	httpapi.SetupRoutes(app, cfg, val, nil, admin, pool, tenantStore, middleware.NewRateLimiter())
 	return app
 }
 
@@ -309,7 +309,7 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 	if !ok {
 		t.Fatal("expected prefill enqueue to succeed")
 	}
-	httpapi.SetupRoutes(app, cfg, val, admin, pool, tenantStore, middleware.NewRateLimiter())
+	httpapi.SetupRoutes(app, cfg, val, nil, admin, pool, tenantStore, middleware.NewRateLimiter())
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -323,4 +323,3 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 		t.Fatalf("expected 503, got %d", res.StatusCode)
 	}
 }
-
