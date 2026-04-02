@@ -48,7 +48,7 @@ func (m *mockTenantRepo) RotateAPIKey(ctx context.Context, id, newKey string, gr
 }
 
 type mockLicenseRepo struct {
-	revokeFunc   func(ctx context.Context, tenantID, key string) error
+	revokeFunc    func(ctx context.Context, tenantID, key string) error
 	findByKeyFunc func(ctx context.Context, tenantID, key string) (*domain.License, error)
 }
 
@@ -64,13 +64,19 @@ func (m *mockLicenseRepo) Revoke(ctx context.Context, tenantID, key string) erro
 func (m *mockLicenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.License, error) {
 	return nil, errors.New("not implemented")
 }
+func (m *mockLicenseRepo) Update(ctx context.Context, l *domain.License) error {
+	return nil
+}
+func (m *mockLicenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*domain.License, error) {
+	return nil, nil
+}
 
 type mockLicenseCache struct {
-	setFunc           func(ctx context.Context, tenantID, key string, license *domain.License)
+	setFunc          func(ctx context.Context, tenantID, key string, license *domain.License)
 	invalidateTenant func(ctx context.Context, tenantID string) error
 
 	lastSetTenantID string
-	lastSetKey       string
+	lastSetKey      string
 	lastSetLicense  *domain.License
 }
 
@@ -116,7 +122,7 @@ func (m *mockTenantCache) InvalidateByTenantID(ctx context.Context, tenantID str
 
 type mockLimiter struct {
 	invalidateCount int
-	lastTenantID     string
+	lastTenantID    string
 }
 
 func (m *mockLimiter) Invalidate(tenantID string) {
@@ -146,7 +152,7 @@ func TestAdminService_CreateTenant_WritesCachesAndInvalidatesLimiter(t *testing.
 	}
 
 	tenantRepo := &mockTenantRepo{
-		createFunc: func(ctx context.Context, t *domain.Tenant) error { return nil },
+		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
 		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
 		findByIDFunc:      func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
 		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
@@ -207,10 +213,10 @@ func TestAdminService_RevokeLicense_UpdatesLicenseCacheAfterRevoke(t *testing.T)
 
 	tenantRepo := &mockTenantRepo{
 		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
-		updateStatusFunc: func(ctx context.Context, id, status string) error { return nil },
-		findByIDFunc:     func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
-		rotateAPIKeyFunc: func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
-		updateLimitsFunc: func(ctx context.Context, id string, rps, burst int) error { return nil },
+		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
+		findByIDFunc:      func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
+		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
+		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
 		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
 	}
 
@@ -244,7 +250,7 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 	var invalidateTenantCalled bool
 
 	tenantRepo := &mockTenantRepo{
-		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
+		createFunc: func(ctx context.Context, t *domain.Tenant) error { return nil },
 		updateStatusFunc: func(ctx context.Context, id, status string) error {
 			updateStatusCalled = true
 			if id != tenantID || status != "suspended" {
@@ -258,8 +264,8 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 			}
 			return &domain.Tenant{ID: tenantID, APIKey: "tenant-key"}, nil
 		},
-		rotateAPIKeyFunc: func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
-		updateLimitsFunc: func(ctx context.Context, id string, rps, burst int) error { return nil },
+		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
+		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
 		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
 	}
 
@@ -301,4 +307,3 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 		t.Fatalf("expected auditor write %q; got count=%d event=%s", domain.EventTenantSuspended, auditor.writeCount, auditor.lastEntry.Event)
 	}
 }
-

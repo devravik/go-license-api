@@ -12,6 +12,10 @@ type LicenseRepository interface {
 	Revoke(ctx context.Context, tenantID, key string) error
 	// GetRecent returns a bounded list of recently updated licenses for warm-up.
 	GetRecent(ctx context.Context, limit int) ([]License, error)
+	// Update modifies persisted license fields.
+	Update(ctx context.Context, l *License) error
+	// ListByTenant returns a bounded page of licenses for a tenant.
+	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*License, error)
 }
 
 // TenantRepository provides persistent tenant storage operations.
@@ -54,4 +58,5 @@ type ProductRepository interface {
 	ListUpdatedAfter(ctx context.Context, tenantID string, after time.Time) ([]*Product, error)
 	Upsert(ctx context.Context, p *Product) error
 	SetActive(ctx context.Context, tenantID, productID string, isActive bool) error
+	Delete(ctx context.Context, tenantID, productID string) error
 }

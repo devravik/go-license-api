@@ -126,6 +126,21 @@ func (r *productRepo) SetActive(ctx context.Context, tenantID, productID string,
 	return nil
 }
 
+func (r *productRepo) Delete(ctx context.Context, tenantID, productID string) error {
+	const q = `
+		DELETE FROM products
+		WHERE tenant_id = $1 AND id = $2
+	`
+	tag, err := r.db.Exec(ctx, q, tenantID, productID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrProductNotFound
+	}
+	return nil
+}
+
 func (r *productRepo) scanOne(ctx context.Context, q string, args ...any) (*domain.Product, error) {
 	row := r.db.QueryRow(ctx, q, args...)
 	p := &domain.Product{}

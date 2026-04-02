@@ -52,6 +52,67 @@ Request → Tenant Auth → IP Check → Rate Limit → Queue → Worker → Val
 - PostgreSQL 14+
 - Docker (for local development)
 
+### Admin CLI (Control Plane)
+
+The project ships with a Cobra-based admin CLI that covers all control-plane domains (tenant, license, product, cache, system).
+
+Quickstart:
+
+```bash
+# Build/run CLI directly
+go run ./cmd/cli --pretty system config
+
+# Examples
+go run ./cmd/cli tenant create --rps=100 --burst=200 --pretty
+go run ./cmd/cli license create --tenant=tenant_1 --key=ABC-123 --product=v-plugin --expires=2026-12-31 --meta='{"plan":"pro"}'
+go run ./cmd/cli cache invalidate --tenant=tenant_1
+```
+
+CLI commands (examples):
+
+```bash
+# Tenant
+go run ./cmd/cli tenant create --rps=100 --burst=200 --pretty
+go run ./cmd/cli tenant update --id=tenant_1 --rps=200 --burst=400
+go run ./cmd/cli tenant rotate-key --id=tenant_1 --grace=24h
+go run ./cmd/cli tenant allowlist --id=tenant_1 --cidr=10.0.0.0/8 --cidr=192.168.0.0/16
+go run ./cmd/cli tenant suspend --id=tenant_1 --reason="abuse"
+go run ./cmd/cli tenant reinstate --id=tenant_1
+go run ./cmd/cli tenant get --id=tenant_1
+go run ./cmd/cli tenant list
+go run ./cmd/cli tenant delete --id=tenant_1
+
+# License
+go run ./cmd/cli license create --tenant=tenant_1 --key=ABC-123 --product=v-plugin --expires=2026-12-31 --meta='{"plan":"pro"}'
+go run ./cmd/cli license update --tenant=tenant_1 --key=ABC-123 --expires=2027-01-01
+go run ./cmd/cli license revoke --tenant=tenant_1 --key=ABC-123
+go run ./cmd/cli license get --tenant=tenant_1 --key=ABC-123
+go run ./cmd/cli license list --tenant=tenant_1 --limit=100 --offset=0
+
+# Product
+go run ./cmd/cli product create --tenant=tenant_1 --id=v-plugin --name="Video Plugin" --version=1.0
+go run ./cmd/cli product update --tenant=tenant_1 --id=v-plugin --name="Video Plugin Pro"
+go run ./cmd/cli product get --tenant=tenant_1 --code=v-plugin
+go run ./cmd/cli product list --tenant=tenant_1
+go run ./cmd/cli product activate --tenant=tenant_1 --id=<product_id>
+go run ./cmd/cli product deactivate --tenant=tenant_1 --id=<product_id>
+go run ./cmd/cli product delete --tenant=tenant_1 --id=<product_id>
+
+# Cache
+go run ./cmd/cli cache invalidate --tenant=tenant_1
+go run ./cmd/cli cache warmup --limit=500
+go run ./cmd/cli cache reload --limit=500
+go run ./cmd/cli cache reload --tenant=tenant_1
+go run ./cmd/cli cache stats
+
+# System
+go run ./cmd/cli system health
+go run ./cmd/cli system stats
+go run ./cmd/cli system config
+```
+
+For deeper explanations and responses, see [development/16_cli_reference.md](development/16_cli_reference.md).
+
 ### Running Locally
 
 ```bash
