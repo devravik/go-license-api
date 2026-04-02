@@ -1,0 +1,12 @@
+# deployments/k8s/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-license-api
+spec:
+  selector:
+    app: go-license-api
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP

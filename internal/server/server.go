@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/base64"
 	"log"
+	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/devravik/go-license-api/internal/app"
@@ -24,6 +27,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"crypto/ed25519"
 	"github.com/jackc/pgx/v5/pgxpool"
 	jsoniter "github.com/json-iterator/go"
 )
@@ -45,6 +49,9 @@ func New() (*Server, *setup.Config) {
 	cfg := setup.Load()
 	logCfg := setup.LoadLoggingConfig()
 	cacheCfg := setup.LoadCacheConfig()
+
+	ready := atomic.Bool{}
+	ready.Store(false)
 
 	// Fail fast on startup if PostgreSQL isn't reachable.
 	dbCfg := setup.LoadDatabaseConfig()
@@ -187,12 +194,33 @@ func New() (*Server, *setup.Config) {
 	auditQuery := audit.NewQueryService(pool)
 
 	// Initialize signing keys and registry (global keypair at startup).
-	_, priv, err := icrypto.GenerateEd25519KeyPair()
-	if err != nil {
-		log.Fatalf("generate signing keypair: %v", err)
+	var signerRegistry *icrypto.SignerRegistry
+	if strings.TrimSpace(cfg.SigningKeyPath) != "" {
+		keyData, err := os.ReadFile(cfg.SigningKeyPath)
+		if err != nil {
+			log.Fatalf("cannot read SIGNING_KEY_PATH: %v", err)
+		}
+		raw := strings.TrimSpace(string(keyData))
+		dec, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			if hx, err2 := hex.DecodeString(raw); err2 == nil {
+				dec = hx
+			}
+		}
+		if len(dec) != ed25519.PrivateKeySize {
+			log.Fatalf("SIGNING_KEY_PATH invalid key size: got=%d want=%d", len(dec), ed25519.PrivateKeySize)
+		}
+		priv := ed25519.PrivateKey(dec)
+		globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
+		signerRegistry = icrypto.NewSignerRegistry(globalSigner)
+	} else {
+		_, priv, err := icrypto.GenerateEd25519KeyPair()
+		if err != nil {
+			log.Fatalf("generate signing keypair: %v", err)
+		}
+		globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
+		signerRegistry = icrypto.NewSignerRegistry(globalSigner)
 	}
-	globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
-	signerRegistry := icrypto.NewSignerRegistry(globalSigner)
 
 	// Initialize webhook dispatcher and cache (optional feature).
 	var webhookEncKey []byte
@@ -215,7 +243,17 @@ func New() (*Server, *setup.Config) {
 	webhookRepo := idb.NewWebhookRepo(pool)
 
 	// Setup routes with injected config and services (extended)
-	http.SetupRoutesV2(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo)
+	http.SetupRoutesV3(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo,
+		func() bool { return ready.Load() },
+		func() int {
+			if poolSvc != nil {
+				return poolSvc.QueueDepth()
+			}
+			return 0
+		})
+
+	// Mark server ready after initialization completes.
+	ready.Store(true)
 
 	return &Server{
 		app:         appInstance,

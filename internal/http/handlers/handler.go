@@ -12,6 +12,9 @@ import (
 
 type Handler struct {
 	Cfg               *setup.Config
+	// Readiness and diagnostics providers are injected by the server.
+	IsReady           func() bool
+	QueueDepth        func() int
 	ValidationService app.ValidationService
 	ActivationService app.ActivationService
 	AdminService      app.AdminService
@@ -43,6 +46,8 @@ func NewHandler(
 ) *Handler {
 	return &Handler{
 		Cfg:               cfg,
+		IsReady:           func() bool { return true },
+		QueueDepth:        func() int { if pool != nil { return pool.QueueDepth() }; return 0 },
 		ValidationService: valSvc,
 		ActivationService: activationSvc,
 		AdminService:      adminSvc,

@@ -1,0 +1,46 @@
+# deployments/k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-license-api
+  labels:
+    app: go-license-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-license-api
+  template:
+    metadata:
+      labels:
+        app: go-license-api
+    spec:
+      containers:
+        - name: server
+          image: your-registry/go-license-api:v1.0.0
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: go-license-api-config
+            - secretRef:
+                name: go-license-api-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

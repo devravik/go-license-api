@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+tmp
+*.log
+.env
+# Ignore deployments by default but keep the Dockerfile available for builds
+deployments/**
+!deployments/docker/
+!deployments/docker/Dockerfile

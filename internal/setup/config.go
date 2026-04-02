@@ -17,6 +17,7 @@ type Config struct {
 	AppMode            string
 	AppEnv             string
 	JSONEngine         string
+	SigningKeyPath     string
 	WorkerCount        int
 	WorkerQueueSize    int
 	WorkerTimeout      time.Duration
@@ -41,11 +42,14 @@ func Load() *Config {
 
 	cfg := &Config{
 		AppName:            getEnv("APP_NAME", "Go License API"),
-		AppPort:            getEnv("APP_PORT", "8080"),
+		// Prefer conventional PORT, fall back to legacy APP_PORT
+		AppPort:            getEnv("PORT", getEnv("APP_PORT", "3000")),
 		AdminKey:           getEnv("ADMIN_API_KEY", ""),
 		AppMode:            getEnv("APP_MODE", "single"),
-		AppEnv:             getEnv("APP_ENV", "develop"),
+		// Use standard "development" instead of "develop"
+		AppEnv:             getEnv("APP_ENV", "development"),
 		JSONEngine:         getEnv("JSON_ENGINE", "std"),
+		SigningKeyPath:     getEnv("SIGNING_KEY_PATH", ""),
 		WorkerCount:        getEnvInt("WORKER_COUNT", 8),
 		WorkerQueueSize:    getEnvInt("WORKER_QUEUE_SIZE", 500),
 		WorkerTimeout:      getEnvDuration("WORKER_TIMEOUT", 1500*time.Millisecond),

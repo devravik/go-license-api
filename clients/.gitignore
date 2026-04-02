@@ -1,0 +1,6 @@
+typescript/*
+python/*
+go/*
+!.gitkeep
+!.README.md
+

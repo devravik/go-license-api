@@ -1,0 +1,23 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Go License API",
+    "version": "1.0.0",
+    "description": "High-performance multi-tenant license validation service."
+  },
+  "servers": [
+    { "url": "http://localhost:8080", "description": "Local" }
+  ],
+  "paths": {
+    "/health": { "get": { "responses": { "200": { "description": "OK" } } } },
+    "/healthz": { "get": { "responses": { "200": { "description": "OK" } } } },
+    "/readyz": { "get": { "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "AdminKey": { "type": "apiKey", "in": "header", "name": "X-Admin-Key" },
+      "TenantAuth": { "type": "apiKey", "in": "header", "name": "X-Tenant-Key" }
+    }
+  }
+}
+

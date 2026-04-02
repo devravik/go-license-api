@@ -1,0 +1,58 @@
+# deployments/docker/docker-compose.yml
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Keep Redis optional; app will fallback to in-memory only when not set
+      REDIS_URL: ${REDIS_URL:-}
+      DATABASE_URL: postgres://postgres:password@postgres:5432/golicense?sslmode=disable
+      # Project rules restrict ENV to MODE/PORT/ADMIN_API_KEY for runtime config.
+      # Provide only what's required by the app.
+      ADMIN_API_KEY: local-admin-key-change-me
+      PORT: "3000"
+      MODE: multi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # For faster local iteration, mount the repo into the container (optional).
+    # Comment these two lines out if you prefer container-only builds.
+    volumes:
+      - ../..:/app
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: golicense
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../../migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  redis_data:

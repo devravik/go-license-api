@@ -1,0 +1,16 @@
+# deployments/k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: go-license-api-config
+data:
+  PORT: "3000"
+  APP_ENV: "production"
+  APP_MODE: "multi"
+  LOG_LEVEL: "error"
+  LOG_OUTPUT: "stdout"
+  CACHE_L1_MAX_ENTRIES: "50000"
+  CACHE_LICENSE_TTL: "3m"
+  CACHE_TENANT_TTL: "5m"
+  SHUTDOWN_TIMEOUT: "30s"
+  WORKER_DRAIN_TIMEOUT: "25s"

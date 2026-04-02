@@ -1,0 +1,569 @@
+openapi: 3.1.0
+info:
+  title: Go License API
+  version: 1.0.0
+  description: |
+    High-performance multi-tenant license validation service.
+    Data Plane under `/licenses/*`, Control Plane under `/admin/*`.
+servers:
+  - url: http://localhost:8080
+    description: Local
+paths:
+  /:
+    get:
+      summary: Landing page
+      operationId: getHome
+      responses:
+        '200':
+          description: OK
+  /health:
+    get:
+      summary: Liveness check
+      operationId: getHealth
+      responses:
+        '200':
+          description: OK
+  /healthz:
+    get:
+      summary: Liveness check (k8s)
+      operationId: getHealthz
+      responses:
+        '200':
+          description: OK
+  /readyz:
+    get:
+      summary: Readiness check
+      operationId: getReadyz
+      responses:
+        '200':
+          description: Ready
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /licenses/validate:
+    post:
+      summary: Validate a license
+      description: Constant-time cache lookup. No DB calls on hot path.
+      operationId: postLicenseValidate
+      security:
+        - TenantAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateRequest'
+            examples:
+              example:
+                value:
+                  tenantId: "tenant_123"
+                  key: "LIC-ABC-123"
+                  fingerprint: "host-xyz"
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateResponse'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /licenses/activate:
+    post:
+      summary: Activate a license
+      description: Queued; executed by worker pool.
+      operationId: postLicenseActivate
+      security:
+        - TenantAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivationRequest'
+      responses:
+        '202':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationAccepted'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /licenses/deactivate:
+    post:
+      summary: Deactivate a license
+      description: Queued; executed by worker pool.
+      operationId: postLicenseDeactivate
+      security:
+        - TenantAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeactivationRequest'
+      responses:
+        '202':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeactivationAccepted'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /licenses/{key}/signed:
+    get:
+      summary: Fetch a signed license (JWS/JWT)
+      description: Available when signerRegistry is configured. Bypasses rate limiting and worker pool.
+      operationId: getSignedLicense
+      security:
+        - TenantAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Signed license token
+          content:
+            application/jwt:
+              schema:
+                type: string
+                description: JWS compact serialization
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /.well-known/jwks.json:
+    get:
+      summary: JWKS for signature verification
+      description: Available when signerRegistry is configured.
+      operationId: getJWKS
+      responses:
+        '200':
+          description: JWKS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKS'
+  /admin/:
+    get:
+      summary: Admin status
+      operationId: getAdminStatus
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: OK
+  /admin/tenants:
+    post:
+      summary: Create tenant
+      operationId: postCreateTenant
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /admin/licenses/revoke:
+    post:
+      summary: Revoke license
+      operationId: postRevokeLicense
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRequest'
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResult'
+  /admin/tenants/{id}/suspend:
+    post:
+      summary: Suspend tenant
+      operationId: postSuspendTenant
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Suspended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResult'
+  /admin/tenants/{id}/reinstate:
+    post:
+      summary: Reinstate tenant
+      operationId: postReinstateTenant
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reinstated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResult'
+  /admin/tenants/{id}/ip-allowlist:
+    post:
+      summary: Update tenant IP allowlist
+      operationId: postUpdateTenantIPAllowlist
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIPAllowlistRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /admin/tenants/{id}/webhooks:
+    post:
+      summary: Register tenant webhook
+      operationId: postRegisterTenantWebhook
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterWebhookRequest'
+      responses:
+        '201':
+          description: Created
+  /admin/tenants/{id}/rotate-key:
+    post:
+      summary: Rotate tenant key
+      operationId: postRotateTenantKey
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Rotated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /admin/tenants/{id}/limits:
+    patch:
+      summary: Update tenant limits
+      operationId: patchUpdateTenantLimits
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLimitsRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /admin/tenants/{id}:
+    delete:
+      summary: Delete tenant
+      operationId: deleteTenant
+      security:
+        - AdminKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+  /admin/audit-log:
+    get:
+      summary: Query audit log
+      operationId: getAuditLog
+      security:
+        - AdminKey: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+components:
+  securitySchemes:
+    AdminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+    TenantAuth:
+      type: apiKey
+      in: header
+      name: X-Tenant-Key
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - license_expired
+            - license_not_found
+            - rate_limited
+            - unauthorized
+            - forbidden
+            - validation_failed
+        message:
+          type: string
+      required: [code, message]
+      examples:
+        expired:
+          value:
+            code: license_expired
+            message: License expired on 2026-01-01
+    ValidateRequest:
+      type: object
+      properties:
+        tenantId:
+          type: string
+        key:
+          type: string
+        fingerprint:
+          type: string
+      required: [tenantId, key]
+    ValidateResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [valid]
+    ActivationRequest:
+      type: object
+      properties:
+        tenantId:
+          type: string
+        key:
+          type: string
+        fingerprint:
+          type: string
+      required: [tenantId, key]
+    ActivationAccepted:
+      type: object
+      properties:
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [accepted]
+      required: [requestId, status]
+    DeactivationRequest:
+      type: object
+      properties:
+        tenantId:
+          type: string
+        key:
+          type: string
+        fingerprint:
+          type: string
+      required: [tenantId, key]
+    DeactivationAccepted:
+      type: object
+      properties:
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [accepted]
+      required: [requestId, status]
+    CreateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        contactEmail:
+          type: string
+      required: [name]
+    UpdateIPAllowlistRequest:
+      type: object
+      properties:
+        cidrs:
+          type: array
+          items:
+            type: string
+    UpdateLimitsRequest:
+      type: object
+      properties:
+        rateLimitPerMinute:
+          type: integer
+        maxActivations:
+          type: integer
+    RegisterWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+      required: [url]
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        contactEmail:
+          type: string
+        suspended:
+          type: boolean
+      required: [id, name, suspended]
+    ActionResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required: [ok]
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        time:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        action:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    JWKS:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kid:
+                type: string
+              kty:
+                type: string
+              alg:
+                type: string
+              use:
+                type: string
+              n:
+                type: string
+              e:
+                type: string
+            required: [kid, kty]
+security: []
+
