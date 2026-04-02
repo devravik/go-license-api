@@ -24,6 +24,18 @@ type License struct {
 	CreatedAt       time.Time      `json:"created_at"`
 }
 
+// ValidationMeta is the structured metadata for successful validations.
+type ValidationMeta struct {
+	Plan              string     `json:"plan,omitempty"`
+	Product           string     `json:"product,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	SeatsTotal        *int       `json:"seats_total,omitempty"`
+	Trial             bool       `json:"trial,omitempty"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at,omitempty"`
+	Features          []string   `json:"features,omitempty"`
+	InGracePeriod     bool       `json:"in_grace_period,omitempty"`
+}
+
 // IsExpired returns true if the license has passed its expiry and grace period.
 func (l *License) IsExpired() bool {
 	if l.ExpiresAt == nil {
@@ -72,8 +84,7 @@ func (l *License) IsRevoked() bool {
 
 // ValidationResult is the structured response returned by the validation use case.
 type ValidationResult struct {
-	Valid             bool           `json:"valid"`
-	Meta              map[string]any `json:"meta,omitempty"`
-	Error             string         `json:"error,omitempty"`
-	GracePeriodEndsAt *time.Time     `json:"grace_period_ends_at,omitempty"`
+	Valid bool            `json:"valid"`
+	Meta  *ValidationMeta `json:"meta,omitempty"`
+	Error string          `json:"error,omitempty"`
 }

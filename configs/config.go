@@ -19,6 +19,14 @@ type Config struct {
 	JSONEngine        string
 	WorkerCount       int
 	WorkerQueueSize   int
+	WorkerTimeout     time.Duration
+	ValidationTimeout time.Duration
+	ClientTimeout     time.Duration
+	MinLicenseKeyLen  int
+	AuditWorkerCount  int
+	AuditQueueSize    int
+	AuditRetryCount   int
+	AuditRetryDelay   time.Duration
 	AdminAllowedCIDRs []string
 }
 
@@ -27,7 +35,7 @@ func Load() *Config {
 		log.Println("No .env file found, using system environment variables")
 	}
 
-	return &Config{
+	cfg := &Config{
 		AppName:           getEnv("APP_NAME", "Go License API"),
 		AppPort:           getEnv("APP_PORT", "8080"),
 		AdminKey:          getEnv("ADMIN_API_KEY", "secret-admin-key"),
@@ -36,8 +44,29 @@ func Load() *Config {
 		JSONEngine:        getEnv("JSON_ENGINE", "std"),
 		WorkerCount:       getEnvInt("WORKER_COUNT", 8),
 		WorkerQueueSize:   getEnvInt("WORKER_QUEUE_SIZE", 500),
+		WorkerTimeout:     getEnvDuration("WORKER_TIMEOUT", 1500*time.Millisecond),
+		ValidationTimeout: getEnvDuration("VALIDATION_TIMEOUT", 2*time.Second),
+		ClientTimeout:     getEnvDuration("CLIENT_TIMEOUT", 3*time.Second),
+		MinLicenseKeyLen:  getEnvInt("MIN_LICENSE_KEY_LEN", 8),
+		AuditWorkerCount:  getEnvInt("AUDIT_WORKER_COUNT", 2),
+		AuditQueueSize:    getEnvInt("AUDIT_QUEUE_SIZE", getEnvInt("WORKER_COUNT", 8)*100),
+		AuditRetryCount:   getEnvInt("AUDIT_RETRY_COUNT", 1),
+		AuditRetryDelay:   getEnvDuration("AUDIT_RETRY_DELAY", 50*time.Millisecond),
 		AdminAllowedCIDRs: getEnvCSV("ADMIN_ALLOWED_CIDRS"),
 	}
+	if cfg.WorkerTimeout > cfg.ValidationTimeout {
+		cfg.WorkerTimeout = cfg.ValidationTimeout
+	}
+	if cfg.ValidationTimeout > cfg.ClientTimeout {
+		cfg.ValidationTimeout = cfg.ClientTimeout
+	}
+	if cfg.MinLicenseKeyLen < 1 {
+		cfg.MinLicenseKeyLen = 1
+	}
+	if cfg.AuditQueueSize < cfg.WorkerCount*100 {
+		cfg.AuditQueueSize = cfg.WorkerCount * 100
+	}
+	return cfg
 }
 
 func getEnv(key, fallback string) string {

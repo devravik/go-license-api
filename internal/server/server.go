@@ -9,8 +9,10 @@ import (
 
 	"github.com/devravik/go-license-api/configs"
 	"github.com/devravik/go-license-api/internal/app"
+	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	iaudit "github.com/devravik/go-license-api/internal/infrastructure/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
 	"github.com/devravik/go-license-api/internal/worker"
@@ -146,9 +148,14 @@ func New() (*fiber.App, *configs.Config) {
 	}
 
 	rateLimiter := middleware.NewRateLimiter()
-	valSvc := app.NewValidationService(tenantStore, licenseStore)
+	auditWriter := idb.NewAuditWriter(pool)
+	auditCh := make(chan *domain.AuditEntry, cfg.AuditQueueSize)
+	auditWorker := iaudit.NewWorker(auditWriter, auditCh, cfg.AuditWorkerCount, cfg.AuditRetryCount, cfg.AuditRetryDelay)
+	auditWorker.Start(context.Background())
+
+	valSvc := app.NewValidationService(tenantStore, licenseStore, auditCh, cfg.MinLicenseKeyLen)
 	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter)
-	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc)
+	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
 	poolSvc.Start(context.Background())
 
 	// Setup routes with injected config and services

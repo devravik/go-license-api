@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"context"
+	"time"
 
 	"github.com/devravik/go-license-api/internal/http/dto"
 	"github.com/devravik/go-license-api/internal/worker"
@@ -32,7 +32,7 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 		APIKey:     apiKey,
 		LicenseKey: req.Key,
 		Product:    req.Product,
-		Ctx:        context.Background(),
+		Ctx:        c.Context(),
 		ResultCh:   resultCh,
 	}
 
@@ -57,10 +57,10 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 			Meta:  result.Meta,
 			Error: result.Error,
 		})
-	case <-c.Context().Done():
-		return c.Status(fiber.StatusRequestTimeout).JSON(dto.LicenseValidationResponse{
+	case <-time.After(h.Cfg.ValidationTimeout):
+		return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{
 			Valid: false,
-			Error: "request_timeout",
+			Error: "validation_timeout",
 		})
 	}
 }

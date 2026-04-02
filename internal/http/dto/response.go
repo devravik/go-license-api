@@ -1,9 +1,11 @@
 package dto
 
+import "github.com/devravik/go-license-api/internal/domain"
+
 type LicenseValidationResponse struct {
-	Valid bool           `json:"valid"`
-	Meta  map[string]any `json:"meta,omitempty"`
-	Error string         `json:"error,omitempty"`
+	Valid bool                   `json:"valid"`
+	Meta  *domain.ValidationMeta `json:"meta,omitempty"`
+	Error string                 `json:"error,omitempty"`
 }
 
 type HealthResponse struct {

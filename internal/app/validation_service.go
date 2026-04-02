@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/devravik/go-license-api/internal/domain"
 )
@@ -11,8 +12,10 @@ type ValidationService interface {
 }
 
 type validationService struct {
-	tenants  TenantStore
-	licenses LicenseStore
+	tenants             TenantStore
+	licenses            LicenseStore
+	auditCh             chan<- *domain.AuditEntry
+	minLicenseKeyLength int
 }
 
 type TenantStore interface {
@@ -23,13 +26,21 @@ type LicenseStore interface {
 	Get(ctx context.Context, tenantID, key string) (*domain.License, error)
 }
 
-func NewValidationService(tenants TenantStore, licenses LicenseStore) ValidationService {
-	return &validationService{tenants: tenants, licenses: licenses}
+func NewValidationService(tenants TenantStore, licenses LicenseStore, auditCh chan<- *domain.AuditEntry, minLicenseKeyLength int) ValidationService {
+	return &validationService{
+		tenants:             tenants,
+		licenses:            licenses,
+		auditCh:             auditCh,
+		minLicenseKeyLength: minLicenseKeyLength,
+	}
 }
 
 func (s *validationService) Validate(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
 	if tenantID == "" || apiKey == "" || key == "" {
 		return &domain.ValidationResult{Valid: false, Error: "invalid_request"}, nil
+	}
+	if len(key) < s.minLicenseKeyLength {
+		return &domain.ValidationResult{Valid: false, Error: "invalid_key"}, nil
 	}
 
 	tenant, err := s.tenants.Get(ctx, tenantID, apiKey)
@@ -42,33 +53,56 @@ func (s *validationService) Validate(ctx context.Context, tenantID, apiKey, key,
 
 	lic, err := s.licenses.Get(ctx, tenant.ID, key)
 	if err != nil {
+		if errors.Is(err, domain.ErrLicenseNotFound) {
+			return &domain.ValidationResult{Valid: false, Error: "license_not_found"}, nil
+		}
 		return &domain.ValidationResult{Valid: false, Error: "license_not_found"}, nil
 	}
 
 	// Minimal validation rules (domain-first)
 	if lic.IsRevoked() {
+		s.auditOutcome(ctx, tenantID, key, "failure", domain.EventLicenseFailed)
 		return &domain.ValidationResult{Valid: false, Error: "license_revoked"}, nil
 	}
-	if lic.IsExpired() {
-		if lic.IsInGracePeriod() {
-			return &domain.ValidationResult{
-				Valid:             false,
-				Error:             "license_grace_period",
-				GracePeriodEndsAt: lic.GracePeriodEndsAt(),
-			}, nil
-		}
+	if product != "" && lic.Product != product {
+		return &domain.ValidationResult{Valid: false, Error: "invalid_product"}, nil
+	}
+	gracePeriodEndsAt := lic.GracePeriodEndsAt()
+	inGrace := lic.IsInGracePeriod()
+	expired := lic.IsExpired()
+	if expired && !inGrace {
+		s.auditOutcome(ctx, tenantID, key, "failure", domain.EventLicenseFailed)
 		return &domain.ValidationResult{Valid: false, Error: "license_expired"}, nil
 	}
-	if product != "" && lic.Product != "" && lic.Product != product {
-		return &domain.ValidationResult{Valid: false, Error: "product_mismatch"}, nil
-	}
+	s.auditOutcome(ctx, tenantID, key, "success", domain.EventLicenseValidated)
 
 	return &domain.ValidationResult{
 		Valid: true,
-		Meta: map[string]any{
-			"tenant_id": tenant.ID,
-			"product":   lic.Product,
-			"plan":      lic.Plan,
+		Meta: &domain.ValidationMeta{
+			Plan:              lic.Plan,
+			Product:           lic.Product,
+			ExpiresAt:         lic.ExpiresAt,
+			SeatsTotal:        lic.SeatCount,
+			Trial:             lic.IsTrial,
+			GracePeriodEndsAt: gracePeriodEndsAt,
+			Features:          lic.Features,
+			InGracePeriod:     inGrace,
 		},
 	}, nil
+}
+
+func (s *validationService) auditOutcome(_ context.Context, tenantID, key, outcome, event string) {
+	if s.auditCh == nil {
+		return
+	}
+	entry := &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      event,
+		ResourceID: key,
+		Outcome:    outcome,
+	}
+	select {
+	case s.auditCh <- entry:
+	default:
+	}
 }

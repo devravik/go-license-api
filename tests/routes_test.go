@@ -18,14 +18,22 @@ import (
 
 type mockValidationService struct {
 	lastTenantID string
-	lastAPIKey string
+	lastAPIKey   string
 	lastKey    string
 	lastProd   string
 	result     *domain.ValidationResult
 	err        error
+	delay      time.Duration
 }
 
-func (m *mockValidationService) Validate(_ context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
+func (m *mockValidationService) Validate(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
+	if m.delay > 0 {
+		select {
+		case <-time.After(m.delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	m.lastTenantID = tenantID
 	m.lastAPIKey = apiKey
 	m.lastKey = key
@@ -63,9 +71,16 @@ func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminServic
 		JSONEngine:        "std",
 		WorkerCount:       1,
 		WorkerQueueSize:   8,
+		WorkerTimeout:     1500 * time.Millisecond,
+		ValidationTimeout: 2 * time.Second,
+		ClientTimeout:     3 * time.Second,
 		AdminAllowedCIDRs: nil,
 	}
+	return newTestAppWithConfig(t, cfg, val, admin)
+}
 
+func newTestAppWithConfig(t *testing.T, cfg *configs.Config, val *mockValidationService, admin *mockAdminService) *fiber.App {
+	t.Helper()
 	app := fiber.New()
 	l1, err := cache.NewL1Cache(1000)
 	if err != nil {
@@ -80,7 +95,7 @@ func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminServic
 		Status: "active",
 	})
 
-	pool := worker.NewPool(1, 8, val)
+	pool := worker.NewPool(1, 8, val, cfg.WorkerTimeout)
 	pool.Start(context.Background())
 	httpapi.SetupRoutes(app, cfg, val, admin, pool, tenantStore, middleware.NewRateLimiter())
 	return app
@@ -127,7 +142,7 @@ func TestValidateRoute_Success(t *testing.T) {
 	val := &mockValidationService{
 		result: &domain.ValidationResult{
 			Valid: true,
-			Meta:  map[string]any{"plan": "pro"},
+			Meta:  &domain.ValidationMeta{Plan: "pro"},
 		},
 	}
 	app := newTestApp(t, val, &mockAdminService{})
@@ -216,6 +231,96 @@ func TestAdminMutations_Success(t *testing.T) {
 		if res.StatusCode != 200 {
 			t.Fatalf("%s %s expected 200, got %d", tc.method, tc.path, res.StatusCode)
 		}
+	}
+}
+
+func TestValidateRoute_Timeout504(t *testing.T) {
+	cfg := &configs.Config{
+		AppName:           "Go License API",
+		AppPort:           "8080",
+		AdminKey:          "test-admin-key",
+		AppMode:           "multi",
+		AppEnv:            "test",
+		JSONEngine:        "std",
+		WorkerCount:       1,
+		WorkerQueueSize:   8,
+		WorkerTimeout:     2 * time.Second,
+		ValidationTimeout: 25 * time.Millisecond,
+		ClientTimeout:     2 * time.Second,
+		AdminAllowedCIDRs: nil,
+	}
+	val := &mockValidationService{delay: 200 * time.Millisecond}
+	app := newTestAppWithConfig(t, cfg, val, &mockAdminService{})
+
+	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "t1")
+	req.Header.Set("X-API-Key", "tenant-key")
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("validate timeout request failed: %v", err)
+	}
+	if res.StatusCode != 504 {
+		t.Fatalf("expected 504, got %d", res.StatusCode)
+	}
+}
+
+func TestValidateRoute_QueueFull503(t *testing.T) {
+	cfg := &configs.Config{
+		AppName:           "Go License API",
+		AppPort:           "8080",
+		AdminKey:          "test-admin-key",
+		AppMode:           "multi",
+		AppEnv:            "test",
+		JSONEngine:        "std",
+		WorkerCount:       0,
+		WorkerQueueSize:   1,
+		WorkerTimeout:     2 * time.Second,
+		ValidationTimeout: 200 * time.Millisecond,
+		ClientTimeout:     2 * time.Second,
+		AdminAllowedCIDRs: nil,
+	}
+	val := &mockValidationService{}
+	admin := &mockAdminService{}
+	app := fiber.New()
+	l1, err := cache.NewL1Cache(1000)
+	if err != nil {
+		t.Fatalf("new l1 cache: %v", err)
+	}
+	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
+	tenantStore.Set(context.Background(), "t1", "tenant-key", &domain.Tenant{
+		ID:     "t1",
+		APIKey: "tenant-key",
+		RPS:    100,
+		Burst:  200,
+		Status: "active",
+	})
+	pool := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, val, cfg.WorkerTimeout)
+	pool.Start(context.Background())
+	// Fill the single-slot queue; with zero workers it remains full.
+	ok := pool.Enqueue(&worker.ValidateJob{
+		TenantID:   "t1",
+		APIKey:     "tenant-key",
+		LicenseKey: "abc-123",
+		Product:    "pro",
+		Ctx:        context.Background(),
+		ResultCh:   make(chan worker.Result, 1),
+	})
+	if !ok {
+		t.Fatal("expected prefill enqueue to succeed")
+	}
+	httpapi.SetupRoutes(app, cfg, val, admin, pool, tenantStore, middleware.NewRateLimiter())
+
+	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "t1")
+	req.Header.Set("X-API-Key", "tenant-key")
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("validate queue full request failed: %v", err)
+	}
+	if res.StatusCode != 503 {
+		t.Fatalf("expected 503, got %d", res.StatusCode)
 	}
 }
 
