@@ -1,0 +1,209 @@
+{
+  "info": {
+    "name": "Go License API",
+    "_postman_id": "a6c2b2f0-3a8f-4a6b-9c21-collection-golicense",
+    "description": "Postman collection for Go License API (runtime + admin). Includes validation, activation, and admin profile updates.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "GET /readyz",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/readyz",
+              "host": ["{{baseUrl}}"],
+              "path": ["readyz"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Licenses (Runtime)",
+      "item": [
+        {
+          "name": "POST /licenses/validate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
+              { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{licenseKey}}\",\n  \"product\": \"{{product}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/licenses/validate",
+              "host": ["{{baseUrl}}"],
+              "path": ["licenses", "validate"]
+            }
+          }
+        },
+        {
+          "name": "POST /licenses/activate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
+              { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{licenseKey}}\",\n  \"product\": \"{{product}}\",\n  \"machine_id\": \"{{machineId}}\",\n  \"hostname\": \"{{hostname}}\",\n  \"ip\": \"{{ip}}\",\n  \"user_agent\": \"{{userAgent}}\",\n  \"metadata\": {\"env\": \"dev\"}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/licenses/activate",
+              "host": ["{{baseUrl}}"],
+              "path": ["licenses", "activate"]
+            }
+          }
+        },
+        {
+          "name": "POST /licenses/deactivate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
+              { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activation_id\": \"{{activationId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/licenses/deactivate",
+              "host": ["{{baseUrl}}"],
+              "path": ["licenses", "deactivate"]
+            }
+          }
+        },
+        {
+          "name": "GET /licenses/:key/signed",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
+              { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses/{{licenseKey}}/signed",
+              "host": ["{{baseUrl}}"],
+              "path": ["licenses", "{{licenseKey}}", "signed"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin (Control Plane)",
+      "item": [
+        {
+          "name": "GET /admin/",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", ""]
+            }
+          }
+        },
+        {
+          "name": "POST /admin/licenses/revoke",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"key\": \"{{licenseKey}}\",\n  \"reason\": \"compromised\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/licenses/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "licenses", "revoke"]
+            }
+          }
+        },
+        {
+          "name": "PATCH /admin/tenants/:id/profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Inc\",\n  \"slug\": \"acme\",\n  \"email\": \"ops@acme.io\",\n  \"company\": \"Acme Inc\",\n  \"plan\": \"pro\",\n  \"max_licenses\": 5000,\n  \"metadata\": {\"tier\": \"enterprise\"}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/tenants/{{tenantId}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "tenants", "{{tenantId}}", "profile"]
+            }
+          }
+        },
+        {
+          "name": "PATCH /admin/tenants/:id/limits",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rps\": 200,\n  \"burst\": 400\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/tenants/{{tenantId}}/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "tenants", "{{tenantId}}", "limits"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "tenantId", "value": "example_tenant_1" },
+    { "key": "tenantApiKey", "value": "replace_me" },
+    { "key": "adminKey", "value": "replace_me_admin" },
+    { "key": "licenseKey", "value": "ABC-123" },
+    { "key": "product", "value": "v-plugin" },
+    { "key": "machineId", "value": "machine-1" },
+    { "key": "hostname", "value": "host-1" },
+    { "key": "activationId", "value": "" },
+    { "key": "ip", "value": "127.0.0.1" },
+    { "key": "userAgent", "value": "PostmanRuntime/GoLicense" }
+  ]
+}
+

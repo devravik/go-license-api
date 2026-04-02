@@ -79,6 +79,7 @@ func (s *validationService) Validate(ctx context.Context, tenantID, apiKey, key,
 			Trial:             lic.IsTrial,
 			GracePeriodEndsAt: gracePeriodEndsAt,
 			Features:          lic.Features,
+			Version:           lic.Version,
 			InGracePeriod:     inGrace,
 		},
 	}, nil

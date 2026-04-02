@@ -1649,6 +1649,57 @@ Please see [CHANGELOG.md](CHANGELOG.md) for a full release history.
 
 ---
 
+## April 2026 updates: Schema, API, CLI, SDK
+
+- Tenants: added name, slug (unique), email, company, plan (default: free), max_licenses (default: 1000), metadata JSONB, updated_at, deleted_at
+- Licenses: added issued_at, revoked_at, revoked_reason, last_validated_at, version, deleted_at
+- Activations: added ip, user_agent, metadata JSONB
+- Usage: added source, metadata JSONB; new table usage_daily for rollups
+- Audit: added resource_type, severity
+- Webhooks: added last_triggered_at, failure_count; Deliveries: added error
+- Products: added max_activations, usage_limit, trial_days
+- Indexes: license status/expiry; usage license/time; activation active by tenant
+
+API changes:
+- Validation now returns meta.version (int) for client cache validation.
+- New admin endpoint: PATCH /admin/tenants/:id/profile with body { name, slug, email, company, plan, max_licenses, metadata }.
+- Admin revoke accepts { tenant_id, key, reason? }. Reason may be ignored depending on deployment.
+
+CLI:
+- New admin helpers via migrate tool:
+  - Update tenant profile:
+    ```bash
+    go run ./cmd/migrate admin tenant update-profile \
+      --id TENANT_ID \
+      --name "Acme Inc" \
+      --slug acme \
+      --email ops@acme.io \
+      --company "Acme Inc" \
+      --plan pro \
+      --max-licenses 5000 \
+      --metadata '{"tier":"enterprise"}'
+    ```
+  - Revoke a license:
+    ```bash
+    go run ./cmd/migrate admin license revoke \
+      --tenant TENANT_ID \
+      --key LICENSE_KEY
+    ```
+- Existing Cobra CLI (cmd/cli) continues to manage tenants and licenses; no breaking changes.
+
+SDK guidance:
+- Include new optional fields in models:
+  - Tenants: plan, max_licenses, metadata, updated_at, deleted_at
+  - Licenses: issued_at, revoked_at, revoked_reason, last_validated_at, version, deleted_at
+  - Activations: ip, user_agent, metadata
+- Ensure validation response model includes meta.version.
+
+Cache/sync:
+- Admin updates write-through caches; tenant.updated_at maintained by trigger.
+- License version auto-bumps on meaningful DB updates; validation remains cache-only.
+
+---
+
 ## Maintainer
 
 **Ravi K Gupta**

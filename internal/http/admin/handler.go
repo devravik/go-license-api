@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"time"
 
 	"github.com/devravik/go-license-api/internal/http/handlers"
@@ -59,6 +60,7 @@ func (h *Handler) RevokeLicense(c fiber.Ctx) error {
 	if req.TenantID == "" || req.Key == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id_and_key_required"})
 	}
+	// Backward-compatible: AdminService interface keeps original signature (no reason).
 	if err := h.base.AdminService.RevokeLicense(c.Context(), req.TenantID, req.Key); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -183,6 +185,32 @@ func (h *Handler) RegisterWebhook(c fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed_to_register"})
 	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"ok": true})
+}
+
+// UpdateTenantProfile updates tenant identity and billing-profile fields if supported by the service.
+func (h *Handler) UpdateTenantProfile(c fiber.Ctx) error {
+	tenantID := c.Params("id")
+	if tenantID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id_required"})
+	}
+	var req dto.AdminUpdateTenantProfileRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+	}
+	// Optional method detection via type assertion.
+	type profiler interface {
+		UpdateTenantProfile(ctx fiber.Ctx, tenantID string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error
+	}
+	// Use the underlying concrete value; AdminService may wrap the concrete type.
+	if svc, ok := any(h.base.AdminService).(interface {
+		UpdateTenantProfile(ctx context.Context, tenantID string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error
+	}); ok {
+		if err := svc.UpdateTenantProfile(c.Context(), tenantID, req.Name, req.Slug, req.Email, req.Company, req.Plan, req.MaxLicenses, req.Metadata); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "updated"})
+	}
+	return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{"error": "update_profile_not_supported"})
 }
 
 

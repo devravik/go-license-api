@@ -117,6 +117,7 @@ func SetupRoutesV2(
 	adminGroup.Post("/tenants/:id/suspend", adminHandler.SuspendTenant)
 	adminGroup.Post("/tenants/:id/reinstate", adminHandler.ReinstateTenant)
 	adminGroup.Post("/tenants/:id/ip-allowlist", adminHandler.UpdateTenantIPAllowlist)
+	adminGroup.Patch("/tenants/:id/profile", adminHandler.UpdateTenantProfile)
 	adminGroup.Post("/tenants/:id/webhooks", adminHandler.RegisterWebhook)
 	adminGroup.Post("/tenants/:id/rotate-key", adminHandler.RotateTenantKey)
 	adminGroup.Patch("/tenants/:id/limits", adminHandler.UpdateTenantLimits)

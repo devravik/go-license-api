@@ -208,3 +208,29 @@ func (s *adminService) UpdateTenantIPAllowlist(ctx context.Context, tenantID str
 	})
 	return nil
 }
+
+// UpdateTenantProfile is intentionally not part of the AdminService interface to keep
+// backward compatibility for existing mocks and tests. Handlers can detect support via
+// type assertion on this method set.
+func (s *adminService) UpdateTenantProfile(ctx context.Context, tenantID string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error {
+	type tenantProfileRepo interface {
+		UpdateProfile(ctx context.Context, id string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error
+	}
+	type tenantFinder interface {
+		FindByID(ctx context.Context, id string) (*domain.Tenant, error)
+	}
+	tr, ok := s.tenants.(tenantProfileRepo)
+	if !ok {
+		return errors.New("update_profile_not_supported")
+	}
+	if err := tr.UpdateProfile(ctx, tenantID, name, slug, email, company, plan, maxLicenses, metadata); err != nil {
+		return fmt.Errorf("update tenant profile: %w", err)
+	}
+	if tf, ok := s.tenants.(tenantFinder); ok {
+		if t, err := tf.FindByID(ctx, tenantID); err == nil && t != nil {
+			s.tenCache.Set(ctx, t.ID, t.APIKey, t)
+		}
+	}
+	s.limiter.Invalidate(tenantID)
+	return nil
+}

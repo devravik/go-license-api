@@ -22,6 +22,11 @@ type Product struct {
 	Features []string       `json:"features"`
 	Meta     map[string]any `json:"meta"`
 
+	// Default enforcement controls per product
+	MaxActivations *int `json:"max_activations,omitempty"`
+	UsageLimit     *int `json:"usage_limit,omitempty"`
+	TrialDays      *int `json:"trial_days,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

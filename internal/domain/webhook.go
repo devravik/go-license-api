@@ -13,8 +13,10 @@ type Webhook struct {
 	// The signing secret is recovered by decrypting this field at dispatch time.
 	SecretEnc []byte `json:"-"` // never serialize to JSON.
 
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
+	IsActive        bool       `json:"is_active"`
+	LastTriggeredAt *time.Time `json:"last_triggered_at,omitempty"`
+	FailureCount    int        `json:"failure_count,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // WebhookDelivery records a single dispatch attempt.
@@ -32,4 +34,6 @@ type WebhookDelivery struct {
 	NextRetryAt  *time.Time `json:"next_retry_at"`
 	DeliveredAt  *time.Time `json:"delivered_at"`
 	CreatedAt    time.Time  `json:"created_at"`
+
+	Error string `json:"error,omitempty"`
 }

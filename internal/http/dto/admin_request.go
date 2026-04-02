@@ -3,6 +3,7 @@ package dto
 type AdminRevokeLicenseRequest struct {
 	TenantID string `json:"tenant_id"`
 	Key      string `json:"key"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type AdminCreateTenantRequest struct {
@@ -31,4 +32,14 @@ type AdminRegisterWebhookRequest struct {
 	URL    string   `json:"url"`
 	Events []string `json:"events"`
 	Secret string   `json:"secret"`
+}
+
+type AdminUpdateTenantProfileRequest struct {
+	Name        string                 `json:"name"`
+	Slug        string                 `json:"slug"`
+	Email       string                 `json:"email"`
+	Company     string                 `json:"company"`
+	Plan        string                 `json:"plan"`
+	MaxLicenses int                    `json:"max_licenses"`
+	Metadata    map[string]any         `json:"metadata"`
 }

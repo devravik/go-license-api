@@ -25,7 +25,8 @@ func (r *tenantRepo) FindByID(ctx context.Context, id string) (*domain.Tenant, e
 			id, api_key, old_api_key, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, suspension_reason, ip_allowlist,
-			created_at
+			created_at,
+			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
 		FROM tenants
 		WHERE id = $1
 	`
@@ -40,7 +41,8 @@ func (r *tenantRepo) FindByAPIKey(ctx context.Context, apiKey string) (*domain.T
 			id, api_key, old_api_key, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, suspension_reason, ip_allowlist,
-			created_at
+			created_at,
+			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
 		FROM tenants
 		WHERE api_key = $1 OR old_api_key = $1
 		LIMIT 1
@@ -55,7 +57,8 @@ func (r *tenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
 			id, api_key, old_api_key, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, suspension_reason, ip_allowlist,
-			created_at
+			created_at,
+			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
 		FROM tenants
 	`
 
@@ -80,6 +83,7 @@ func (r *tenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
 			&t.SuspensionReason,
 			&t.IPAllowlist,
 			&t.CreatedAt,
+			&t.Name, &t.Slug, &t.Email, &t.Company, &t.Plan, &t.MaxLicenses, &t.Metadata, &t.UpdatedAt, &t.DeletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("tenant scan: %w", err)
 		}
@@ -94,10 +98,10 @@ func (r *tenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
 
 func (r *tenantRepo) Create(ctx context.Context, t *domain.Tenant) error {
 	const q = `
-		INSERT INTO tenants (id, api_key, rps, burst, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO tenants (id, api_key, rps, burst, status, name, slug, email, company, plan, max_licenses, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
-	_, err := r.db.Exec(ctx, q, t.ID, t.APIKey, t.RPS, t.Burst, t.Status)
+	_, err := r.db.Exec(ctx, q, t.ID, t.APIKey, t.RPS, t.Burst, t.Status, t.Name, t.Slug, t.Email, t.Company, t.Plan, t.MaxLicenses, t.Metadata)
 	return err
 }
 
@@ -157,6 +161,7 @@ func (r *tenantRepo) scanTenant(row pgx.Row) (*domain.Tenant, error) {
 		&t.SuspensionReason,
 		&t.IPAllowlist,
 		&t.CreatedAt,
+		&t.Name, &t.Slug, &t.Email, &t.Company, &t.Plan, &t.MaxLicenses, &t.Metadata, &t.UpdatedAt, &t.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -165,4 +170,38 @@ func (r *tenantRepo) scanTenant(row pgx.Row) (*domain.Tenant, error) {
 		return nil, fmt.Errorf("tenant scan: %w", err)
 	}
 	return t, nil
+}
+
+// Optional helper not part of the TenantRepository interface.
+func (r *tenantRepo) FindBySlug(ctx context.Context, slug string) (*domain.Tenant, error) {
+	const q = `
+		SELECT
+			id, api_key, old_api_key, old_key_expires_at,
+			rps, burst, status,
+			suspended_at, suspension_reason, ip_allowlist,
+			created_at,
+			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
+		FROM tenants
+		WHERE slug = $1
+		LIMIT 1
+	`
+	return r.scanTenant(r.db.QueryRow(ctx, q, slug))
+}
+
+// Optional helper not part of the TenantRepository interface.
+func (r *tenantRepo) UpdateProfile(ctx context.Context, id string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error {
+	const q = `
+		UPDATE tenants
+		SET
+			name = $2,
+			slug = $3,
+			email = $4,
+			company = $5,
+			plan = $6,
+			max_licenses = $7,
+			metadata = $8
+		WHERE id = $1
+	`
+	_, err := r.db.Exec(ctx, q, id, name, slug, email, company, plan, maxLicenses, metadata)
+	return err
 }

@@ -21,6 +21,17 @@ type Tenant struct {
 
 	IPAllowlist []string  `json:"ip_allowlist"`
 	CreatedAt   time.Time `json:"created_at"`
+
+	// Identity and lifecycle fields (control plane)
+	Name        string         `json:"name,omitempty"`
+	Slug        string         `json:"slug,omitempty"`
+	Email       string         `json:"email,omitempty"`
+	Company     string         `json:"company,omitempty"`
+	Plan        string         `json:"plan,omitempty"`
+	MaxLicenses int            `json:"max_licenses,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   *time.Time     `json:"deleted_at,omitempty"`
 }
 
 // IsSuspended returns true if the tenant is not allowed to make requests.
@@ -60,4 +71,25 @@ type ActivationRecord struct {
 
 	ActivatedAt time.Time  `json:"activated_at"`
 	ReleasedAt  *time.Time `json:"released_at"`
+
+	// Diagnostics and device fingerprint evolution
+	IP        string         `json:"ip,omitempty"`
+	UserAgent string         `json:"user_agent,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+// UsageRecord tracks consumption-based usage events.
+type UsageRecord struct {
+	ID int `json:"id"`
+
+	LicenseID int    `json:"license_id"`
+	TenantID  string `json:"tenant_id"`
+
+	Units int `json:"units"`
+
+	RecordedAt time.Time `json:"recorded_at"`
+
+	// Aggregation-friendly context
+	Source   string         `json:"source,omitempty"` // api | batch | manual
+	Metadata map[string]any `json:"metadata,omitempty"`
 }

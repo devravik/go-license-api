@@ -17,6 +17,10 @@ type AuditEntry struct {
 
 	Meta map[string]any `json:"meta"`
 
+	// Query-at-scale fields
+	ResourceType string `json:"resource_type,omitempty"`
+	Severity     string `json:"severity,omitempty"` // info | warning | error
+
 	CreatedAt time.Time `json:"created_at"`
 }
 

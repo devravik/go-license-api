@@ -9,4 +9,5 @@ type UpdateTenantLimitsRequest = dto.AdminUpdateTenantLimitsRequest
 type UpdateTenantIPAllowlistRequest = dto.AdminUpdateTenantIPAllowlistRequest
 type RotateAPIKeyRequest = dto.AdminRotateAPIKeyRequest
 type RegisterWebhookRequest = dto.AdminRegisterWebhookRequest
+type UpdateTenantProfileRequest = dto.AdminUpdateTenantProfileRequest
 

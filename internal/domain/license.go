@@ -4,24 +4,30 @@ import "time"
 
 // License represents a single license record as stored in the database.
 type License struct {
-	ID              int            `json:"id"`
-	TenantID        string         `json:"tenant_id"`
-	Key             string         `json:"key"`
-	ProductID       string         `json:"product_id"`
-	Product         string         `json:"product"`
-	Status          string         `json:"status"` // active | revoked | expired
-	Plan            string         `json:"plan"`
-	IsTrial         bool           `json:"is_trial"`
-	TrialEndsAt     *time.Time     `json:"trial_ends_at"`
-	ExpiresAt       *time.Time     `json:"expires_at"`
-	GracePeriodDays int            `json:"grace_period_days"`
-	SeatCount       *int           `json:"seat_count"` // nil = unlimited
-	MaxActivations  *int           `json:"max_activations"`
-	UsageLimit      *int           `json:"usage_limit"`
-	UsageUsed       int            `json:"usage_used"`
-	Features        []string       `json:"features"`
-	Meta            map[string]any `json:"meta"`
-	CreatedAt       time.Time      `json:"created_at"`
+	ID               int                    `json:"id"`
+	TenantID         string                 `json:"tenant_id"`
+	Key              string                 `json:"key"`
+	ProductID        string                 `json:"product_id"`
+	Product          string                 `json:"product"`
+	Status           string                 `json:"status"` // active | revoked | expired
+	Plan             string                 `json:"plan"`
+	IsTrial          bool                   `json:"is_trial"`
+	TrialEndsAt      *time.Time             `json:"trial_ends_at"`
+	ExpiresAt        *time.Time             `json:"expires_at"`
+	GracePeriodDays  int                    `json:"grace_period_days"`
+	SeatCount        *int                   `json:"seat_count"` // nil = unlimited
+	MaxActivations   *int                   `json:"max_activations"`
+	UsageLimit       *int                   `json:"usage_limit"`
+	UsageUsed        int                    `json:"usage_used"`
+	Features         []string               `json:"features"`
+	Meta             map[string]any         `json:"meta"`
+	CreatedAt        time.Time              `json:"created_at"`
+	IssuedAt         time.Time              `json:"issued_at"`
+	RevokedAt        *time.Time             `json:"revoked_at,omitempty"`
+	RevokedReason    string                 `json:"revoked_reason,omitempty"`
+	LastValidatedAt  *time.Time             `json:"last_validated_at,omitempty"`
+	Version          int                    `json:"version"`
+	DeletedAt        *time.Time             `json:"deleted_at,omitempty"`
 }
 
 // ValidationMeta is the structured metadata for successful validations.
@@ -33,6 +39,7 @@ type ValidationMeta struct {
 	Trial             bool       `json:"trial,omitempty"`
 	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at,omitempty"`
 	Features          []string   `json:"features,omitempty"`
+	Version           int        `json:"version,omitempty"`
 	InGracePeriod     bool       `json:"in_grace_period,omitempty"`
 }
 

@@ -90,10 +90,10 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 	record.IsActive = true
 
 	const insertQ = `
-		INSERT INTO activations (id, license_id, tenant_id, machine_id, hostname, is_active, activated_at)
-		VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
+		INSERT INTO activations (id, license_id, tenant_id, machine_id, hostname, is_active, activated_at, ip, user_agent, metadata)
+		VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), $6, $7, $8)
 	`
-	if _, err := tx.Exec(ctx, insertQ, record.ID, licenseID, tenantID, record.MachineID, record.Hostname); err != nil {
+	if _, err := tx.Exec(ctx, insertQ, record.ID, licenseID, tenantID, record.MachineID, record.Hostname, record.IP, record.UserAgent, record.Metadata); err != nil {
 		// Insertion can race. If unique index fires, return the existing active row.
 		if isUniqueViolation(err) {
 			const existingQ = `

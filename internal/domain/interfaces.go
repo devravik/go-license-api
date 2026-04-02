@@ -16,6 +16,8 @@ type LicenseRepository interface {
 	Update(ctx context.Context, l *License) error
 	// ListByTenant returns a bounded page of licenses for a tenant.
 	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*License, error)
+	// Note: last_validated_at updates and similar admin-safe ops are optional and can
+	// be provided by concrete repos without being part of the interface.
 }
 
 // TenantRepository provides persistent tenant storage operations.

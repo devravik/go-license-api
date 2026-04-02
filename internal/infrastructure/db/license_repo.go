@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -27,7 +28,9 @@ func (r *licenseRepo) FindByKey(ctx context.Context, tenantID, key string) (*dom
 			trial_ends_at, expires_at, grace_period_days,
 			seat_count, max_activations,
 			usage_limit, usage_used,
-			features, meta, created_at
+			features, meta, created_at,
+			issued_at, revoked_at, revoked_reason,
+			last_validated_at, version, deleted_at
 		FROM licenses
 		WHERE tenant_id = $1 AND key = $2
 		LIMIT 1
@@ -54,6 +57,12 @@ func (r *licenseRepo) FindByKey(ctx context.Context, tenantID, key string) (*dom
 		&l.Features,
 		&l.Meta,
 		&l.CreatedAt,
+		&l.IssuedAt,
+		&l.RevokedAt,
+		&l.RevokedReason,
+		&l.LastValidatedAt,
+		&l.Version,
+		&l.DeletedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrLicenseNotFound
@@ -96,7 +105,13 @@ func (r *licenseRepo) Create(ctx context.Context, l *domain.License) error {
 }
 
 func (r *licenseRepo) Revoke(ctx context.Context, tenantID, key string) error {
-	const q = `UPDATE licenses SET status = 'revoked' WHERE tenant_id = $1 AND key = $2`
+	const q = `
+		UPDATE licenses
+		SET status = 'revoked',
+			revoked_at = NOW(),
+			revoked_reason = revoked_reason
+		WHERE tenant_id = $1 AND key = $2
+	`
 	_, err := r.db.Exec(ctx, q, tenantID, key)
 	return err
 }
@@ -117,7 +132,8 @@ func (r *licenseRepo) Update(ctx context.Context, l *domain.License) error {
 			usage_limit = $13,
 			usage_used = $14,
 			features = $15,
-			meta = $16
+			meta = $16,
+			last_validated_at = $17
 		WHERE tenant_id = $1 AND key = $2
 	`
 	_, err := r.db.Exec(ctx, q,
@@ -128,6 +144,7 @@ func (r *licenseRepo) Update(ctx context.Context, l *domain.License) error {
 		l.SeatCount, l.MaxActivations,
 		l.UsageLimit, l.UsageUsed,
 		l.Features, l.Meta,
+		l.LastValidatedAt,
 	)
 	return err
 }
@@ -141,7 +158,9 @@ func (r *licenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, 
 			trial_ends_at, expires_at, grace_period_days,
 			seat_count, max_activations,
 			usage_limit, usage_used,
-			features, meta, created_at
+			features, meta, created_at,
+			issued_at, revoked_at, revoked_reason,
+			last_validated_at, version, deleted_at
 		FROM licenses
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC
@@ -174,6 +193,12 @@ func (r *licenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, 
 			&l.Features,
 			&l.Meta,
 			&l.CreatedAt,
+			&l.IssuedAt,
+			&l.RevokedAt,
+			&l.RevokedReason,
+			&l.LastValidatedAt,
+			&l.Version,
+			&l.DeletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("license scan: %w", err)
 		}
@@ -195,7 +220,9 @@ func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.Licens
 			trial_ends_at, expires_at, grace_period_days,
 			seat_count, max_activations,
 			usage_limit, usage_used,
-			features, meta, created_at
+			features, meta, created_at,
+			issued_at, revoked_at, revoked_reason,
+			last_validated_at, version, deleted_at
 		FROM licenses
 		ORDER BY created_at DESC
 		LIMIT $1
@@ -229,6 +256,12 @@ func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.Licens
 			&l.Features,
 			&l.Meta,
 			&l.CreatedAt,
+			&l.IssuedAt,
+			&l.RevokedAt,
+			&l.RevokedReason,
+			&l.LastValidatedAt,
+			&l.Version,
+			&l.DeletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("recent license scan: %w", err)
 		}
@@ -238,4 +271,11 @@ func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.Licens
 		return nil, fmt.Errorf("recent licenses rows: %w", err)
 	}
 	return out, nil
+}
+
+// Optional helper not part of the interface.
+func (r *licenseRepo) UpdateLastValidatedAt(ctx context.Context, tenantID, key string, at time.Time) error {
+	const q = `UPDATE licenses SET last_validated_at = $3 WHERE tenant_id = $1 AND key = $2`
+	_, err := r.db.Exec(ctx, q, tenantID, key, at)
+	return err
 }
