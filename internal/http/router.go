@@ -14,6 +14,11 @@ import (
 func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationService) {
 	h := handlers.NewHandler(cfg, valSvc)
 
+	// Landing Page
+	app.Get("/", timeout.New(h.Home, timeout.Config{
+		Timeout: 5 * time.Second,
+	}))
+
 	// Health check (Public)
 	app.Get("/health", timeout.New(h.Health, timeout.Config{
 		Timeout: 2 * time.Second,
@@ -28,5 +33,5 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config, valSvc app.ValidationServi
 	// Admin Control Plane (Protected)
 	adminGroup := app.Group("/admin")
 	adminGroup.Use(middleware.Auth)
-	adminGroup.Get("/dashboard", h.AdminDashboard)
+	adminGroup.Get("/", h.AdminStatus)
 }

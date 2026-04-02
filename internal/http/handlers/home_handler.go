@@ -4,8 +4,9 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func (h *Handler) AdminStatus(c fiber.Ctx) error {
+func (h *Handler) Home(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{
-		"message": "Admin API - Operational",
+		"message": h.Cfg.AppName,
+		"status":  "ok",
 	})
 }
