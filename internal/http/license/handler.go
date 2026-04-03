@@ -13,6 +13,14 @@ type Handler struct {
 	base *handlers.Handler
 }
 
+var (
+	validationRespValidTrue      = []byte(`{"valid":true}`)
+	validationRespInvalidReqBody = []byte(`{"valid":false,"error":"invalid_request_body"}`)
+	validationRespKeyRequired    = []byte(`{"valid":false,"error":"key_is_required"}`)
+	validationRespTimeout        = []byte(`{"valid":false,"error":"validation_timeout"}`)
+	validationRespInternalErr    = []byte(`{"valid":false,"error":"internal_validation_error"}`)
+)
+
 func NewHandler(base *handlers.Handler) *Handler {
 	return &Handler{base: base}
 }
@@ -20,17 +28,13 @@ func NewHandler(base *handlers.Handler) *Handler {
 func (h *Handler) Validate(c fiber.Ctx) error {
 	var req dto.LicenseValidationRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(dto.LicenseValidationResponse{
-			Valid: false,
-			Error: "invalid_request_body",
-		})
+		c.Type("json")
+		return c.Status(fiber.StatusBadRequest).Send(validationRespInvalidReqBody)
 	}
 
 	if req.Key == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(dto.LicenseValidationResponse{
-			Valid: false,
-			Error: "key_is_required",
-		})
+		c.Type("json")
+		return c.Status(fiber.StatusBadRequest).Send(validationRespKeyRequired)
 	}
 
 	apiKey, _ := c.Locals("api_key").(string)
@@ -46,15 +50,16 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 	result, err := h.base.ValidationService.Validate(ctx, tenantID, apiKey, req.Key, req.Product)
 	if err != nil {
 		if ctx.Err() != nil {
-			return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{
-				Valid: false,
-				Error: "validation_timeout",
-			})
+			c.Type("json")
+			return c.Status(fiber.StatusGatewayTimeout).Send(validationRespTimeout)
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{
-			Valid: false,
-			Error: "internal_validation_error",
-		})
+		c.Type("json")
+		return c.Status(fiber.StatusInternalServerError).Send(validationRespInternalErr)
+	}
+	// Fast-path: most successful validations have no extra metadata.
+	if result.Valid && result.Meta == nil && result.Error == "" {
+		c.Type("json")
+		return c.Status(fiber.StatusOK).Send(validationRespValidTrue)
 	}
 	return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
 		Valid: result.Valid,

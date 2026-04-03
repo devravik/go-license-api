@@ -35,6 +35,9 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 		skew          string
 		invalid       float64
 		logging       bool
+		opValidate    int
+		opActivate    int
+		opUsage       int
 	)
 
 	cmd := &cobra.Command{
@@ -90,6 +93,9 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 			}
 			if mode != "http" && mode != "direct" {
 				return jsonErr("invalid_flags", fmt.Errorf("mode must be http or direct"))
+			}
+			if opValidate < 0 || opActivate < 0 || opUsage < 0 || opValidate+opActivate+opUsage != 100 {
+				return jsonErr("invalid_flags", fmt.Errorf("op mix must be non-negative and sum to 100"))
 			}
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
@@ -153,9 +159,9 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 				Burst:         burst,
 				SkewHotPct:    parseSkew(skew),
 				InvalidRate:   invalid,
-				OpValidate:    70,
-				OpActivate:    20,
-				OpUsage:       10,
+				OpValidate:    opValidate,
+				OpActivate:    opActivate,
+				OpUsage:       opUsage,
 				ColdStart:     coldStart,
 				LowRPSTenants: lowRPSTenants,
 				Logging:       logging,
@@ -193,6 +199,9 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 	runCmd.Flags().StringVar(&skew, "skew", "80:20", "Traffic skew hot:cold percent (e.g., 80:20)")
 	runCmd.Flags().Float64Var(&invalid, "invalid-rate", 0.10, "Invalid request rate (0..1)")
 	runCmd.Flags().BoolVar(&logging, "logging", false, "Log curl for each HTTP request")
+	runCmd.Flags().IntVar(&opValidate, "op-validate", 70, "Validate operation percentage")
+	runCmd.Flags().IntVar(&opActivate, "op-activate", 20, "Activate operation percentage")
+	runCmd.Flags().IntVar(&opUsage, "op-usage", 10, "Usage operation percentage")
 	cmd.AddCommand(runCmd)
 
 	return cmd

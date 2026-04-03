@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -64,7 +65,32 @@ func New() (*Server, *setup.Config) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := idb.Connect(ctx, databaseURL)
+	limits := idb.PoolLimits{
+		MaxConns:        10,
+		MinConns:        2,
+		MaxConnLifetime: 5 * time.Minute,
+		MaxConnIdleTime: 1 * time.Minute,
+	}
+	// Prefork runs multiple OS processes; each process owns its own DB pool.
+	// Scale per-process max conns down so total stays bounded.
+	if cacheCfg.RedisURL != "" {
+		const totalBudget int32 = 40
+		instances := int32(runtime.GOMAXPROCS(0))
+		if instances < 1 {
+			instances = 1
+		}
+		perProcess := totalBudget / instances
+		if perProcess < 2 {
+			perProcess = 2
+		}
+		limits.MaxConns = perProcess
+		if limits.MinConns > limits.MaxConns {
+			limits.MinConns = limits.MaxConns
+		}
+	}
+	log.Printf("event=db_pool config max_conns=%d min_conns=%d max_lifetime=%s max_idle=%s prefork_estimate=%t",
+		limits.MaxConns, limits.MinConns, limits.MaxConnLifetime, limits.MaxConnIdleTime, cacheCfg.RedisURL != "")
+	pool, err := idb.ConnectWithLimits(ctx, databaseURL, limits)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}

@@ -8,28 +8,51 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type PoolLimits struct {
+	MaxConns        int32
+	MinConns        int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+}
+
 // Connect creates a PostgreSQL connection pool with sensible production defaults.
 // pgxpool is safe for concurrent use — share one pool across the app.
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	return ConnectWithLimits(ctx, databaseURL, PoolLimits{
+		MaxConns:        100,
+		MinConns:        2,
+		MaxConnLifetime: 5 * time.Minute,
+		MaxConnIdleTime: 1 * time.Minute,
+	})
+}
+
+// ConnectWithLimits creates a PostgreSQL pool with explicit bounds.
+func ConnectWithLimits(ctx context.Context, databaseURL string, limits PoolLimits) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse db config: %w", err)
 	}
 
-	// Keep pool bounded to prevent connection storms under high audit throughput.
-	// Favors stability for single-node medium deployments.
-	if cfg.MaxConns == 0 || cfg.MaxConns == 4 {
-		cfg.MaxConns = 16
+	if limits.MaxConns <= 0 {
+		limits.MaxConns = 100
 	}
-	if cfg.MinConns < 2 {
-		cfg.MinConns = 2
+	if limits.MinConns <= 0 {
+		limits.MinConns = 2
 	}
-	if cfg.MaxConnLifetime <= 0 {
-		cfg.MaxConnLifetime = 30 * time.Minute
+	if limits.MinConns > limits.MaxConns {
+		limits.MinConns = limits.MaxConns
 	}
-	if cfg.MaxConnIdleTime <= 0 {
-		cfg.MaxConnIdleTime = 5 * time.Minute
+	if limits.MaxConnLifetime <= 0 {
+		limits.MaxConnLifetime = 5 * time.Minute
 	}
+	if limits.MaxConnIdleTime <= 0 {
+		limits.MaxConnIdleTime = 1 * time.Minute
+	}
+
+	cfg.MaxConns = limits.MaxConns
+	cfg.MinConns = limits.MinConns
+	cfg.MaxConnLifetime = limits.MaxConnLifetime
+	cfg.MaxConnIdleTime = limits.MaxConnIdleTime
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
