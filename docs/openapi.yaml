@@ -219,7 +219,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JWKS'
-  /admin/:
+  /admin:
     get:
       summary: Admin status
       operationId: getAdminStatus
@@ -467,11 +467,9 @@ components:
         message:
           type: string
       required: [code, message]
-      examples:
-        expired:
-          value:
-            code: license_expired
-            message: License expired on 2026-01-01
+      example:
+        code: license_expired
+        message: License expired on 2026-01-01
     ValidateRequest:
       type: object
       properties:
@@ -501,11 +499,9 @@ components:
           type: boolean
         reason:
           type: string
-          nullable: true
         expiresAt:
           type: string
           format: date-time
-          nullable: true
       required: [valid]
     ActivationRequest:
       type: object
@@ -636,6 +632,20 @@ components:
         ok:
           type: boolean
       required: [ok]
+    RevokeRequest:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        license_key:
+          type: string
+          description: Preferred; alias 'key' accepted
+        key:
+          type: string
+          description: Deprecated alias for license_key
+        reason:
+          type: string
+      required: [tenant_id, license_key]
     AuditEvent:
       type: object
       properties:
