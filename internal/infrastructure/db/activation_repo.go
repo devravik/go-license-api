@@ -56,7 +56,7 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 	const usageQ = `
 		SELECT
 			COUNT(*) FILTER (WHERE is_active = TRUE) AS active_count,
-			MAX(CASE WHEN machine_id = $2 AND is_active THEN id END) AS existing_id
+			MAX(CASE WHEN client_id = $2 AND is_active THEN id END) AS existing_id
 		FROM activations
 		WHERE license_id = $1
 	`
@@ -93,7 +93,7 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 	record.IsActive = true
 
 	const insertQ = `
-		INSERT INTO activations (id, license_id, tenant_id, machine_id, hostname, is_active, activated_at, ip, user_agent, metadata)
+		INSERT INTO activations (id, license_id, tenant_id, client_id, hostname, is_active, activated_at, ip, user_agent, metadata)
 		VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), $6, $7, $8)
 	`
 	if _, err := tx.Exec(ctx, insertQ, record.ID, licenseID, tenantID, record.MachineID, record.Hostname, record.IP, record.UserAgent, record.Metadata); err != nil {
@@ -102,7 +102,7 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 			const existingQ = `
 				SELECT id
 				FROM activations
-				WHERE license_id = $1 AND machine_id = $2 AND is_active = TRUE
+				WHERE license_id = $1 AND client_id = $2 AND is_active = TRUE
 				LIMIT 1
 			`
 			var uniqID string
@@ -142,7 +142,7 @@ func (r *activationRepo) ReleaseByMachine(ctx context.Context, tenantID, key, ma
 		WHERE a.license_id = l.id
 		  AND l.tenant_id = $1
 		  AND l.key = $2
-		  AND a.machine_id = $3
+		  AND a.client_id = $3
 		  AND a.is_active = TRUE
 	`
 	tag, err := r.db.Exec(ctx, q, tenantID, key, machineID)
