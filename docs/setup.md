@@ -6,7 +6,7 @@ This guide will help you get the Go License API up and running on your local mac
 
 - **Go**: Version 1.21 or higher. [Download Go](https://go.dev/dl/)
 - **Git**: For cloning the repository.
-- **PostgreSQL**: Required for production; local development can use the in-memory cache but needs a DB connection if persistency is required.
+- **PostgreSQL**: Required for control plane persistence. Data-plane validation never queries DB.
 
 ## Installation
 
@@ -16,39 +16,55 @@ This guide will help you get the Go License API up and running on your local mac
     cd go-license-api
     ```
 
-2.  **Install Dependencies**:
+2.  **Install dependencies**:
     ```bash
     go mod tidy
     ```
 
-3.  **Prepare Environment Variables**:
-    Create a `.env` file in the root directory. You can use the following standard values:
+3.  **Prepare environment variables**:
+    Create a `.env` file in the root directory. Minimal example:
+    ```env
+    ADMIN_API_KEY=your-secret-admin-key
+    PORT=8080
+    APP_MODE=multi
+    ```
+    Common operational settings (optional; see `internal/setup/config.go`):
     ```env
     APP_NAME="Go License API"
-    APP_PORT=8080
-    APP_MODE=multi
-    ADMIN_API_KEY=your-secret-admin-key
-    LOG_ENABLED=true
-    LOG_OUTPUT=stdout
-    LOG_DIR=./logs
+    APP_ENV=development
+    JSON_ENGINE=std
+    SIGNING_KEY_PATH=""
+    WORKER_COUNT=8
+    WORKER_QUEUE_SIZE=5000
+    WORKER_TIMEOUT=1500ms
+    VALIDATION_TIMEOUT=2s
+    CLIENT_TIMEOUT=3s
+    MIN_LICENSE_KEY_LEN=8
+    AUDIT_WORKER_COUNT=2
+    AUDIT_QUEUE_SIZE=8000
+    AUDIT_RETRY_COUNT=1
+    AUDIT_RETRY_DELAY=50ms
+    ADMIN_ALLOWED_CIDRS=
+    WEBHOOK_ENCRYPTION_KEY=
+    SHUTDOWN_TIMEOUT=30
+    AUDIT_FLUSH_TIMEOUT=5
+    WORKER_DRAIN_TIMEOUT=0
     ```
 
 ## Configuration
 
-The application centralizes configuration in the `configs/` package, making it easy to manage through environment variables.
+Configuration is centralized in `internal/setup/config.go`. The server requires `ADMIN_API_KEY` and prefers standard `PORT`.
 
 ### General Settings
 - `APP_NAME`: Name of the application.
-- `APP_PORT`: Port on which the server will run (default: `8080`).
+- `PORT` (or `APP_PORT` fallback): Port on which the server will run (default: `3000`).
 - `APP_MODE`: `single` for single-tenant or `multi` for multi-tenant deployment.
 - `ADMIN_API_KEY`: Secret key required for administrative operations via the `X-Admin-Key` header.
 
-### Logging Settings
-The service includes a production-ready logging system with automatic rotation:
-- `LOG_ENABLED`: Set to `true` to enable logging (default: `true`).
-- `LOG_OUTPUT`: `stdout` for terminal output or `file` for file-based logging (default: `stdout`).
-- `LOG_DIR`: Directory where log files are stored (default: `./logs`).
-- `LOG_LEVEL`: Logging verbosity (default: `error`).
+### Timeouts & Workers
+- `WORKER_COUNT`, `WORKER_QUEUE_SIZE`, `WORKER_TIMEOUT` (bounded worker pool)
+- `VALIDATION_TIMEOUT` (must be ≤ `CLIENT_TIMEOUT`)
+- `CLIENT_TIMEOUT`
 
 ## Running the Server
 
@@ -86,15 +102,19 @@ curl http://localhost:8080/health
 
 ### Validating a License
 
-In `multi` tenant mode, you must provide the tenant identity and API key:
+In `multi` tenant mode, provide the API key via header `X-API-Key`:
 
 ```bash
 curl -X POST http://localhost:8080/licenses/validate \
 -H "Content-Type: application/json" \
--H "X-Tenant-ID: example_tenant" \
 -H "X-API-Key: example_api_key" \
 -d '{
-  "key": "ABC-123-XYZ",
-  "product": "v-plugin"
+  "license_key": "ABC-123-XYZ",
+  "product_code": "v-plugin"
 }'
 ```
+
+### Signed License and JWKS
+- `GET /licenses/{license_key}/signed` (and legacy `{key}`) returns a JWS/JWT when signing is configured.
+- `POST /licenses/signed` accepts a JSON body with `license_key` and returns a JWS/JWT.
+- `GET /.well-known/jwks.json` exposes public keys for verification when signing is enabled.

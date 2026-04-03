@@ -44,12 +44,11 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
               { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"key\": \"{{licenseKey}}\",\n  \"product\": \"{{product}}\"\n}"
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"product_code\": \"{{product}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/licenses/validate",
@@ -64,12 +63,11 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
               { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"key\": \"{{licenseKey}}\",\n  \"product\": \"{{product}}\",\n  \"machine_id\": \"{{machineId}}\",\n  \"hostname\": \"{{hostname}}\",\n  \"ip\": \"{{ip}}\",\n  \"user_agent\": \"{{userAgent}}\",\n  \"metadata\": {\"env\": \"dev\"}\n}"
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"product_code\": \"{{product}}\",\n  \"machine_id\": \"{{machineId}}\",\n  \"hostname\": \"{{hostname}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/licenses/activate",
@@ -84,12 +82,11 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
               { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"activation_id\": \"{{activationId}}\"\n}"
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"client_id\": \"{{machineId}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/licenses/deactivate",
@@ -99,17 +96,54 @@
           }
         },
         {
+          "name": "POST /licenses/usage",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"units\": 1,\n  \"event_id\": \"evt-123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/licenses/usage",
+              "host": ["{{baseUrl}}"],
+              "path": ["licenses", "usage"]
+            }
+          }
+        },
+        {
           "name": "GET /licenses/:key/signed",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "X-Tenant-ID", "value": "{{tenantId}}" },
               { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
             ],
             "url": {
               "raw": "{{baseUrl}}/licenses/{{licenseKey}}/signed",
               "host": ["{{baseUrl}}"],
               "path": ["licenses", "{{licenseKey}}", "signed"]
+            }
+          }
+        },
+        {
+          "name": "POST /licenses/signed",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{tenantApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/licenses/signed",
+              "host": ["{{baseUrl}}"],
+              "path": ["licenses", "signed"]
             }
           }
         }
@@ -194,16 +228,13 @@
   ],
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8080" },
-    { "key": "tenantId", "value": "example_tenant_1" },
     { "key": "tenantApiKey", "value": "replace_me" },
     { "key": "adminKey", "value": "replace_me_admin" },
     { "key": "licenseKey", "value": "ABC-123" },
     { "key": "product", "value": "v-plugin" },
     { "key": "machineId", "value": "machine-1" },
     { "key": "hostname", "value": "host-1" },
-    { "key": "activationId", "value": "" },
-    { "key": "ip", "value": "127.0.0.1" },
-    { "key": "userAgent", "value": "PostmanRuntime/GoLicense" }
+    { "key": "activationId", "value": "" }
   ]
 }
 

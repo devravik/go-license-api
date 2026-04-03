@@ -44,11 +44,19 @@ cli loadtest run \
   --rps <R> \
   --mode <http|direct> \
   [--base-url <URL>] \
+  [--admin-http] \
+  [--admin-key <KEY>] \
+  [--seed] \
+  [--tenant-keys <JSON>] \
   [--burst <B>] \
   [--low-rps-tenants <L>] \
   [--cold-start] \
   [--skew <hot:cold>] \
-  [--invalid-rate <0..1>]
+  [--invalid-rate <0..1>] \
+  [--op-validate <P>] \
+  [--op-activate <P>] \
+  [--op-usage <P>] \
+  [--logging]
 ```
 
 Flags:
@@ -57,13 +65,19 @@ Flags:
 - --rps: target global requests/sec
 - --mode: http (full pipeline) or direct (service layer)
 - --base-url: base URL for HTTP mode (default http://localhost:8080)
+- --admin-http: seed tenants via Admin HTTP endpoints instead of direct DB
+- --admin-key: admin API key (required when --admin-http)
+- --seed: perform seeding before run (default false)
+- --tenant-keys: JSON from seed output `[{"id":"...","api_key":"..."}]`
 - --burst: additional token bucket burst capacity
 - --low-rps-tenants: number of tenants to stress with low RPS limits
 - --cold-start: do not prewarm caches before running
 - --skew: traffic skew hot:cold (default 80:20), e.g., 80% of traffic to 20% tenants
 - --invalid-rate: fraction of invalid requests (default 0.10)
+ - --op-validate/--op-activate/--op-usage: operation mix percentages; must sum to 100
+- --logging: print per-request curl when in HTTP mode
 
-Operation mix (fixed):
+Default operation mix:
 - validate: 70%
 - activate: 20%
 - usage: 10%
@@ -80,6 +94,15 @@ cli loadtest run \
   --tenants=10 --products=2 --licenses=1000 \
   --workers=200 --duration=60s --rps=5000 \
   --mode=direct --cold-start --burst=10000
+
+# Admin seeding via HTTP + custom mix
+cli loadtest run \
+  --tenants=2 --products=10 --licenses=10000 \
+  --workers=80 --duration=10s --rps=5000 \
+  --mode=http --base-url=http://localhost:8080 \
+  --admin-http --admin-key=$ADMIN_API_KEY \
+  --op-validate=90 --op-activate=5 --op-usage=5 \
+  --invalid-rate=0 --logging
 ```
 
 ## Output

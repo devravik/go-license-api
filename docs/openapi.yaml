@@ -59,9 +59,9 @@ paths:
             examples:
               example:
                 value:
-                  tenantId: "tenant_123"
-                  key: "LIC-ABC-123"
-                  fingerprint: "host-xyz"
+                  license_key: "LIC-ABC-123"
+                  client_id: "host-xyz"
+                  product_code: "pro-app"
       responses:
         '200':
           description: Validation result
@@ -127,19 +127,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /licenses/{key}/signed:
+  /licenses/usage:
+    post:
+      summary: Record usage units
+      description: Queued; executed by worker pool.
+      operationId: postLicenseUsage
+      security:
+        - TenantAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsageRequest'
+      responses:
+        '202':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageAccepted'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /licenses/{license_key}/signed:
     get:
       summary: Fetch a signed license (JWS/JWT)
-      description: Available when signerRegistry is configured. Bypasses rate limiting and worker pool.
+      description: Available when signerRegistry is configured. Returns JWS in compact serialization. Legacy alias `{key}` is also accepted.
       operationId: getSignedLicense
       security:
         - TenantAuth: []
       parameters:
-        - name: key
+        - name: license_key
           in: path
           required: true
           schema:
             type: string
+      responses:
+        '200':
+          description: Signed license token
+          content:
+            application/jwt:
+              schema:
+                type: string
+                description: JWS compact serialization
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /licenses/signed:
+    post:
+      summary: Issue a signed license (JWS/JWT)
+      description: Available when signerRegistry is configured.
+      operationId: postSignedLicense
+      security:
+        - TenantAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedLicenseRequest'
       responses:
         '200':
           description: Signed license token
@@ -397,7 +450,7 @@ components:
     TenantAuth:
       type: apiKey
       in: header
-      name: X-Tenant-Key
+      name: X-API-Key
   schemas:
     Error:
       type: object
@@ -422,13 +475,25 @@ components:
     ValidateRequest:
       type: object
       properties:
-        tenantId:
+        license_key:
           type: string
+          description: Preferred field; alias 'key' also accepted
         key:
           type: string
-        fingerprint:
+          description: Deprecated alias for license_key
+        client_id:
           type: string
-      required: [tenantId, key]
+          description: Preferred field; alias 'machine_id' also accepted
+        machine_id:
+          type: string
+          description: Deprecated alias for client_id
+        product_code:
+          type: string
+          description: Preferred product code; alias 'product' also accepted
+        product:
+          type: string
+          description: Deprecated alias for product_code
+      required: [license_key]
     ValidateResponse:
       type: object
       properties:
@@ -445,13 +510,21 @@ components:
     ActivationRequest:
       type: object
       properties:
-        tenantId:
+        license_key:
           type: string
+          description: Preferred; alias 'key' accepted
         key:
           type: string
-        fingerprint:
+          description: Deprecated alias for license_key
+        client_id:
           type: string
-      required: [tenantId, key]
+          description: Preferred; alias 'machine_id' accepted
+        machine_id:
+          type: string
+          description: Deprecated alias for client_id
+        hostname:
+          type: string
+      required: [license_key]
     ActivationAccepted:
       type: object
       properties:
@@ -464,13 +537,15 @@ components:
     DeactivationRequest:
       type: object
       properties:
-        tenantId:
+        license_key:
           type: string
+          description: Preferred; alias 'key' accepted
         key:
           type: string
-        fingerprint:
+          description: Deprecated alias for license_key
+        client_id:
           type: string
-      required: [tenantId, key]
+      required: [license_key]
     DeactivationAccepted:
       type: object
       properties:
@@ -480,6 +555,38 @@ components:
           type: string
           enum: [accepted]
       required: [requestId, status]
+    UsageRequest:
+      type: object
+      properties:
+        license_key:
+          type: string
+          description: Preferred; alias 'key' accepted
+        key:
+          type: string
+          description: Deprecated alias for license_key
+        units:
+          type: integer
+        event_id:
+          type: string
+      required: [license_key, units]
+    UsageAccepted:
+      type: object
+      properties:
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [accepted]
+      required: [requestId, status]
+    SignedLicenseRequest:
+      type: object
+      properties:
+        license_key:
+          type: string
+        key:
+          type: string
+          description: Deprecated alias for license_key
+      required: [license_key]
     CreateTenantRequest:
       type: object
       properties:

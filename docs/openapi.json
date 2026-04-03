@@ -3,20 +3,351 @@
   "info": {
     "title": "Go License API",
     "version": "1.0.0",
-    "description": "High-performance multi-tenant license validation service."
+    "description": "High-performance multi-tenant license validation service. Data Plane under `/licenses/*`, Control Plane under `/admin/*`."
   },
   "servers": [
     { "url": "http://localhost:8080", "description": "Local" }
   ],
   "paths": {
-    "/health": { "get": { "responses": { "200": { "description": "OK" } } } },
-    "/healthz": { "get": { "responses": { "200": { "description": "OK" } } } },
-    "/readyz": { "get": { "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready" } } } }
+    "/": { "get": { "summary": "Landing page", "responses": { "200": { "description": "OK" } } } },
+    "/health": { "get": { "summary": "Liveness check", "responses": { "200": { "description": "OK" } } } },
+    "/healthz": { "get": { "summary": "Liveness check (k8s)", "responses": { "200": { "description": "OK" } } } },
+    "/readyz": {
+      "get": {
+        "summary": "Readiness check",
+        "responses": {
+          "200": { "description": "Ready" },
+          "503": { "description": "Not ready", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/licenses/validate": {
+      "post": {
+        "summary": "Validate a license",
+        "security": [{ "TenantAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidateRequest" } } } },
+        "responses": {
+          "200": { "description": "Validation result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidateResponse" } } } },
+          "429": { "description": "Rate limited", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/licenses/activate": {
+      "post": {
+        "summary": "Activate a license",
+        "security": [{ "TenantAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActivationRequest" } } } },
+        "responses": {
+          "202": { "description": "Accepted for processing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActivationAccepted" } } } },
+          "429": { "description": "Rate limited", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/licenses/deactivate": {
+      "post": {
+        "summary": "Deactivate a license",
+        "security": [{ "TenantAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeactivationRequest" } } } },
+        "responses": {
+          "202": { "description": "Accepted for processing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeactivationAccepted" } } } },
+          "429": { "description": "Rate limited", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/licenses/usage": {
+      "post": {
+        "summary": "Record usage units",
+        "security": [{ "TenantAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsageRequest" } } } },
+        "responses": {
+          "202": { "description": "Accepted for processing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsageAccepted" } } } },
+          "429": { "description": "Rate limited", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/licenses/{license_key}/signed": {
+      "get": {
+        "summary": "Fetch a signed license (JWS/JWT)",
+        "security": [{ "TenantAuth": [] }],
+        "parameters": [{ "name": "license_key", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Signed license token", "content": { "application/jwt": { "schema": { "type": "string" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/licenses/signed": {
+      "post": {
+        "summary": "Issue a signed license (JWS/JWT)",
+        "security": [{ "TenantAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SignedLicenseRequest" } } } },
+        "responses": {
+          "200": { "description": "Signed license token", "content": { "application/jwt": { "schema": { "type": "string" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/.well-known/jwks.json": {
+      "get": { "summary": "JWKS for signature verification", "responses": { "200": { "description": "JWKS", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JWKS" } } } } } }
+    },
+    "/admin/": { "get": { "summary": "Admin status", "security": [{ "AdminKey": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/admin/tenants": {
+      "post": {
+        "summary": "Create tenant",
+        "security": [{ "AdminKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTenantRequest" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } } }
+      }
+    },
+    "/admin/licenses/revoke": {
+      "post": {
+        "summary": "Revoke license",
+        "security": [{ "AdminKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeRequest" } } } },
+        "responses": { "200": { "description": "Revoked", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionResult" } } } } }
+      }
+    },
+    "/admin/tenants/{id}/suspend": {
+      "post": {
+        "summary": "Suspend tenant",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Suspended", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionResult" } } } } }
+      }
+    },
+    "/admin/tenants/{id}/reinstate": {
+      "post": {
+        "summary": "Reinstate tenant",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Reinstated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionResult" } } } } }
+      }
+    },
+    "/admin/tenants/{id}/ip-allowlist": {
+      "post": {
+        "summary": "Update tenant IP allowlist",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateIPAllowlistRequest" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } } }
+      }
+    },
+    "/admin/tenants/{id}/webhooks": {
+      "post": {
+        "summary": "Register tenant webhook",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterWebhookRequest" } } } },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/admin/tenants/{id}/rotate-key": {
+      "post": {
+        "summary": "Rotate tenant key",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Rotated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } } }
+      }
+    },
+    "/admin/tenants/{id}/limits": {
+      "patch": {
+        "summary": "Update tenant limits",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateLimitsRequest" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Tenant" } } } } }
+      }
+    },
+    "/admin/tenants/{id}": {
+      "delete": {
+        "summary": "Delete tenant",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/admin/audit-log": {
+      "get": {
+        "summary": "Query audit log",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [
+          { "name": "q", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/AuditEvent" } } } } } }
+          }
+        }
+      }
+    }
   },
   "components": {
     "securitySchemes": {
       "AdminKey": { "type": "apiKey", "in": "header", "name": "X-Admin-Key" },
-      "TenantAuth": { "type": "apiKey", "in": "header", "name": "X-Tenant-Key" }
+      "TenantAuth": { "type": "apiKey", "in": "header", "name": "X-API-Key" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "enum": ["license_expired","license_not_found","rate_limited","unauthorized","forbidden","validation_failed"] },
+          "message": { "type": "string" }
+        },
+        "required": ["code","message"]
+      },
+      "ValidateRequest": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string", "description": "Preferred field; alias 'key' also accepted" },
+          "key": { "type": "string", "description": "Deprecated alias for license_key" },
+          "client_id": { "type": "string", "description": "Preferred field; alias 'machine_id' also accepted" },
+          "machine_id": { "type": "string", "description": "Deprecated alias for client_id" },
+          "product_code": { "type": "string", "description": "Preferred product code; alias 'product' also accepted" },
+          "product": { "type": "string", "description": "Deprecated alias for product_code" }
+        },
+        "required": ["license_key"]
+      },
+      "ValidateResponse": {
+        "type": "object",
+        "properties": {
+          "valid": { "type": "boolean" },
+          "reason": { "type": "string", "nullable": true },
+          "expiresAt": { "type": "string", "format": "date-time", "nullable": true }
+        },
+        "required": ["valid"]
+      },
+      "ActivationRequest": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string", "description": "Preferred; alias 'key' accepted" },
+          "key": { "type": "string", "description": "Deprecated alias for license_key" },
+          "client_id": { "type": "string", "description": "Preferred; alias 'machine_id' accepted" },
+          "machine_id": { "type": "string", "description": "Deprecated alias for client_id" },
+          "hostname": { "type": "string" }
+        },
+        "required": ["license_key"]
+      },
+      "ActivationAccepted": {
+        "type": "object",
+        "properties": {
+          "requestId": { "type": "string" },
+          "status": { "type": "string", "enum": ["accepted"] }
+        },
+        "required": ["requestId","status"]
+      },
+      "DeactivationRequest": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string", "description": "Preferred; alias 'key' accepted" },
+          "key": { "type": "string", "description": "Deprecated alias for license_key" },
+          "client_id": { "type": "string" }
+        },
+        "required": ["license_key"]
+      },
+      "DeactivationAccepted": {
+        "type": "object",
+        "properties": {
+          "requestId": { "type": "string" },
+          "status": { "type": "string", "enum": ["accepted"] }
+        },
+        "required": ["requestId","status"]
+      },
+      "UsageRequest": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string", "description": "Preferred; alias 'key' accepted" },
+          "key": { "type": "string", "description": "Deprecated alias for license_key" },
+          "units": { "type": "integer" },
+          "event_id": { "type": "string" }
+        },
+        "required": ["license_key","units"]
+      },
+      "UsageAccepted": {
+        "type": "object",
+        "properties": {
+          "requestId": { "type": "string" },
+          "status": { "type": "string", "enum": ["accepted"] }
+        },
+        "required": ["requestId","status"]
+      },
+      "SignedLicenseRequest": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string" },
+          "key": { "type": "string", "description": "Deprecated alias for license_key" }
+        },
+        "required": ["license_key"]
+      },
+      "CreateTenantRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "contactEmail": { "type": "string" }
+        },
+        "required": ["name"]
+      },
+      "UpdateIPAllowlistRequest": {
+        "type": "object",
+        "properties": { "cidrs": { "type": "array", "items": { "type": "string" } } }
+      },
+      "UpdateLimitsRequest": {
+        "type": "object",
+        "properties": {
+          "rateLimitPerMinute": { "type": "integer" },
+          "maxActivations": { "type": "integer" }
+        }
+      },
+      "RegisterWebhookRequest": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "secret": { "type": "string" }
+        },
+        "required": ["url"]
+      },
+      "Tenant": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "contactEmail": { "type": "string" },
+          "suspended": { "type": "boolean" }
+        },
+        "required": ["id","name","suspended"]
+      },
+      "ActionResult": { "type": "object", "properties": { "ok": { "type": "boolean" } }, "required": ["ok"] },
+      "AuditEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "time": { "type": "string", "format": "date-time" },
+          "actor": { "type": "string" },
+          "action": { "type": "string" },
+          "details": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "JWKS": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kid": { "type": "string" },
+                "kty": { "type": "string" },
+                "alg": { "type": "string" },
+                "use": { "type": "string" },
+                "n": { "type": "string" },
+                "e": { "type": "string" }
+              },
+              "required": ["kid","kty"]
+            }
+          }
+        }
+      }
     }
   }
 }
