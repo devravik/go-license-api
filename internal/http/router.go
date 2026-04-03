@@ -107,13 +107,13 @@ func SetupRoutesV2(
 	licenseGroup.Post("/deactivate", licenseHandler.Deactivate)
 	licenseGroup.Post("/usage", licenseHandler.Usage)
 
-	// Signed license issuance (Tenant Protected, BYPASSES rate limiter and worker pool) if deps are present.
+	// Signed license issuance (Tenant Protected). Must be rate-limited and use same middleware chain as /licenses.
 	if licenseStore != nil && signerRegistry != nil {
 		// Preferred path using :license_key
-		app.Get("/licenses/:license_key/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.GetSignedLicense)
+		licenseGroup.Get("/:license_key/signed", h.GetSignedLicense)
 		// Legacy alias retained for backward compatibility
-		app.Get("/licenses/:key/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.GetSignedLicense)
-		app.Post("/licenses/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.PostSignedLicense)
+		licenseGroup.Get("/:key/signed", h.GetSignedLicense)
+		licenseGroup.Post("/signed", h.PostSignedLicense)
 	}
 
 	// Admin Control Plane (Protected)
