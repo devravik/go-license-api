@@ -11,9 +11,9 @@ import (
 )
 
 type ActivationService interface {
-	Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, error)
-	Deactivate(ctx context.Context, tenantID, key, activationID string) error
-	RecordUsage(ctx context.Context, tenantID, key string, units int) error
+	Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, int, error)
+	Deactivate(ctx context.Context, tenantID, key, machineID string) error
+	RecordUsage(ctx context.Context, tenantID, key string, units int) (totalUsed int, remaining *int, err error)
 }
 
 type ActivationLocker interface {
@@ -53,19 +53,19 @@ func NewActivationService(
 	}
 }
 
-func (s *activationService) Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, error) {
+func (s *activationService) Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, int, error) {
 	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	if license.IsRevoked() {
-		return nil, 0, domain.ErrLicenseRevoked
+		return nil, 0, 0, domain.ErrLicenseRevoked
 	}
 	if license.IsExpired() {
-		return nil, 0, domain.ErrLicenseExpired
+		return nil, 0, 0, domain.ErrLicenseExpired
 	}
 	if license.IsInGracePeriod() {
-		return nil, 0, domain.ErrLicenseGracePeriod
+		return nil, 0, 0, domain.ErrLicenseGracePeriod
 	}
 
 	s.locker.Lock(license.ID)
@@ -85,7 +85,7 @@ func (s *activationService) Activate(ctx context.Context, tenantID, key, machine
 
 	remaining, err := s.activations.ActivateWithLock(writeCtx, tenantID, key, record)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	if err := s.store.Invalidate(ctx, tenantID, key); err != nil {
@@ -103,10 +103,14 @@ func (s *activationService) Activate(ctx context.Context, tenantID, key, machine
 		},
 	})
 
-	return record, remaining, nil
+	totalSeats := -1
+	if license.SeatCount != nil {
+		totalSeats = *license.SeatCount
+	}
+	return record, remaining, totalSeats, nil
 }
 
-func (s *activationService) Deactivate(ctx context.Context, tenantID, key, activationID string) error {
+func (s *activationService) Deactivate(ctx context.Context, tenantID, key, machineID string) error {
 	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
 		return err
@@ -115,7 +119,7 @@ func (s *activationService) Deactivate(ctx context.Context, tenantID, key, activ
 	s.locker.Lock(license.ID)
 	defer s.locker.Unlock(license.ID)
 
-	if err := s.activations.Release(ctx, activationID); err != nil {
+	if err := s.activations.ReleaseByMachine(ctx, tenantID, key, machineID); err != nil {
 		return err
 	}
 
@@ -132,18 +136,26 @@ func (s *activationService) Deactivate(ctx context.Context, tenantID, key, activ
 	return nil
 }
 
-func (s *activationService) RecordUsage(ctx context.Context, tenantID, key string, units int) error {
+func (s *activationService) RecordUsage(ctx context.Context, tenantID, key string, units int) (int, *int, error) {
 	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
-		return err
+		return 0, nil, err
 	}
 	if license.IsRevoked() {
-		return domain.ErrLicenseRevoked
+		return 0, nil, domain.ErrLicenseRevoked
 	}
 	if license.IsExpired() && !license.IsInGracePeriod() {
-		return domain.ErrLicenseExpired
+		return 0, nil, domain.ErrLicenseExpired
 	}
-	return s.activations.RecordUsage(ctx, license.ID, units)
+	total, limit, err := s.activations.RecordUsage(ctx, license.ID, units)
+	if err != nil {
+		return 0, nil, err
+	}
+	if limit == nil {
+		return total, nil, nil
+	}
+	rem := *limit - total
+	return total, &rem, nil
 }
 
 func (s *activationService) resolveLicense(ctx context.Context, tenantID, key string) (*domain.License, error) {

@@ -36,8 +36,9 @@ type TenantRepository interface {
 type ActivationRepository interface {
 	ActivateWithLock(ctx context.Context, tenantID, key string, record *ActivationRecord) (remaining int, err error)
 	Release(ctx context.Context, activationID string) error
+	ReleaseByMachine(ctx context.Context, tenantID, key, machineID string) error
 	CountActive(ctx context.Context, licenseID int) (int, error)
-	RecordUsage(ctx context.Context, licenseID, units int) error
+	RecordUsage(ctx context.Context, licenseID, units int) (totalUsed int, limit *int, err error)
 }
 
 // AuditWriter appends audit entries; never reads.

@@ -48,13 +48,13 @@ func (m *mockValidationService) Validate(ctx context.Context, tenantID, apiKey, 
 }
 
 type mockAdminService struct {
-	revokeErr  error
-	suspendErr error
-	reinstateErr error
-	deleteErr error
-	rotateErr  error
-	createErr error
-	updateLimitsErr error
+	revokeErr            error
+	suspendErr           error
+	reinstateErr         error
+	deleteErr            error
+	rotateErr            error
+	createErr            error
+	updateLimitsErr      error
 	updateIPAllowlistErr error
 }
 
@@ -94,6 +94,7 @@ func (m *mockAdminService) UpdateTenantLimits(_ context.Context, tenantID string
 func (m *mockAdminService) UpdateTenantIPAllowlist(_ context.Context, tenantID string, cidrs []string) error {
 	return m.updateIPAllowlistErr
 }
+
 // Satisfy new product methods on AdminService interface for router tests.
 func (m *mockAdminService) UpsertProduct(_ context.Context, p *domain.Product) error { return nil }
 func (m *mockAdminService) DeleteProduct(_ context.Context, tenantID, productID string) error {
@@ -252,8 +253,8 @@ func TestValidateRoute_ValidationErrorPayload(t *testing.T) {
 	if out.Valid {
 		t.Fatalf("expected valid=false")
 	}
-	if out.Error != "license_expired" {
-		t.Fatalf("expected error license_expired, got %q", out.Error)
+	if out.Error == nil || out.Error.Code != "license_expired" {
+		t.Fatalf("expected error code license_expired, got %+v", out.Error)
 	}
 }
 

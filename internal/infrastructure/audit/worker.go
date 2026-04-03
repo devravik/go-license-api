@@ -10,12 +10,12 @@ import (
 )
 
 type Worker struct {
-	writer      domain.AuditWriter
-	queue       <-chan *domain.AuditEntry
-	workers     int
-	maxRetries  int
-	retryDelay  time.Duration
-	waitGroup   sync.WaitGroup
+	writer     domain.AuditWriter
+	queue      <-chan *domain.AuditEntry
+	workers    int
+	maxRetries int
+	retryDelay time.Duration
+	waitGroup  sync.WaitGroup
 }
 
 const (

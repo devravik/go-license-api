@@ -33,10 +33,7 @@ func (rl *RateLimiter) Middleware() fiber.Handler {
 		}
 		bucket := rl.getOrCreate(tenant.ID, tenant.RPS, tenant.Burst)
 		if !bucket.Allow() {
-			return c.Status(fiber.StatusTooManyRequests).JSON(ErrorResponse{
-				Valid: false,
-				Error: "rate_limit_exceeded",
-			})
+			return c.Status(fiber.StatusTooManyRequests).JSON(errorResponse("rate_limit_exceeded", "Rate limit exceeded"))
 		}
 		return c.Next()
 	}

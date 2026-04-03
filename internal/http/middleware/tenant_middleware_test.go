@@ -16,7 +16,7 @@ type mockTenantCache struct {
 	err    error
 }
 
-func (m *mockTenantCache) Get(ctx context.Context, tenantID, apiKey string) (*domain.Tenant, error) {
+func (m *mockTenantCache) GetByAPIKey(ctx context.Context, apiKey string) (*domain.Tenant, error) {
 	return m.tenant, m.err
 }
 
@@ -45,7 +45,6 @@ func TestTenantAuth_InvalidAPIKey(t *testing.T) {
 	})
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "tenant-0001")
 	req.Header.Set("X-API-Key", "bad-bad-bad-bad") // length >= 16 but cache returns invalid
 	res, err := app.Test(req)
 	if err != nil {
@@ -64,7 +63,6 @@ func TestTenantAuth_SuspendedTenant(t *testing.T) {
 	})
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "tenant-0001")
 	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
@@ -92,7 +90,6 @@ func TestTenantAuth_ValidSetsContext(t *testing.T) {
 	)
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "tenant-0001")
 	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {

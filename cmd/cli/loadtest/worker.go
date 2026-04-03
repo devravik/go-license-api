@@ -26,20 +26,20 @@ type LicenseInfo struct {
 }
 
 type RunConfig struct {
-	Mode         string
-	BaseURL      string
-	Duration     time.Duration
-	Workers      int
-	RPS          int
-	Burst        int
-	SkewHotPct   int // e.g. 80 means 20% tenants get 80% traffic
-	InvalidRate  float64
-	OpValidate   int // percent
-	OpActivate   int // percent
-	OpUsage      int // percent
-	ColdStart    bool
+	Mode          string
+	BaseURL       string
+	Duration      time.Duration
+	Workers       int
+	RPS           int
+	Burst         int
+	SkewHotPct    int // e.g. 80 means 20% tenants get 80% traffic
+	InvalidRate   float64
+	OpValidate    int // percent
+	OpActivate    int // percent
+	OpUsage       int // percent
+	ColdStart     bool
 	LowRPSTenants int
-	Logging      bool
+	Logging       bool
 }
 
 type DirectDeps struct {
@@ -48,7 +48,7 @@ type DirectDeps struct {
 }
 
 type Corpus struct {
-	Tenants  []TenantInfo
+	Tenants          []TenantInfo
 	LicensesByTenant map[string][]LicenseInfo
 	RandomLicenses   []LicenseInfo // cross-tenant invalid pool
 }
@@ -128,7 +128,10 @@ func RunWorkers(ctx context.Context, cfg RunConfig, deps *DirectDeps, corpus *Co
 				return
 			case <-ticker.C:
 				// Allow small bursts by capacity; otherwise 1 token per tick.
-				select { case tokenCh <- struct{}{}: default: }
+				select {
+				case tokenCh <- struct{}{}:
+				default:
+				}
 				produced++
 				_ = produced
 			}
@@ -215,7 +218,7 @@ func performDirect(ctx context.Context, deps *DirectDeps, t TenantInfo, key stri
 		}
 		return true, ErrNone
 	case OpActivate:
-		_, _, err := deps.Activation.Activate(ctx, t.ID, key, "machine-"+randomKey(rng), "")
+		_, _, _, err := deps.Activation.Activate(ctx, t.ID, key, "machine-"+randomKey(rng), "")
 		if err != nil {
 			ec := classifyErr(err)
 			if ec == ErrInternal || ec == ErrTimeout {
@@ -363,4 +366,3 @@ func contains(s, sub string) bool {
 	sub = strings.ToLower(sub)
 	return strings.Contains(s, sub)
 }
-

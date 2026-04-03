@@ -57,11 +57,12 @@ func (h *Handler) RevokeLicense(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
 	}
-	if req.TenantID == "" || req.Key == "" {
+	key := req.EffectiveLicenseKey()
+	if req.TenantID == "" || key == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id_and_key_required"})
 	}
 	// Backward-compatible: AdminService interface keeps original signature (no reason).
-	if err := h.base.AdminService.RevokeLicense(c.Context(), req.TenantID, req.Key); err != nil {
+	if err := h.base.AdminService.RevokeLicense(c.Context(), req.TenantID, key); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"ok": true})

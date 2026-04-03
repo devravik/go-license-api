@@ -2,8 +2,16 @@ package dto
 
 type AdminRevokeLicenseRequest struct {
 	TenantID string `json:"tenant_id"`
-	Key      string `json:"key"`
+	LicenseKey string `json:"license_key"`
+	Key        string `json:"key"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+func (r AdminRevokeLicenseRequest) EffectiveLicenseKey() string {
+	if r.LicenseKey != "" {
+		return r.LicenseKey
+	}
+	return r.Key
 }
 
 type AdminCreateTenantRequest struct {

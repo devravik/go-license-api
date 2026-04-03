@@ -16,10 +16,7 @@ func AdminKeyGuard(adminKey string) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		header := strings.TrimSpace(c.Get("X-Admin-Key"))
 		if header == "" || subtle.ConstantTimeCompare([]byte(header), []byte(adminKey)) != 1 {
-			return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
-				Valid: false,
-				Error: "invalid_admin_key",
-			})
+			return c.Status(fiber.StatusUnauthorized).JSON(errorResponse("invalid_admin_key", "Invalid admin key"))
 		}
 		return c.Next()
 	}
@@ -37,10 +34,7 @@ func AdminCIDRGuard(allowedCIDRs []string) fiber.Handler {
 				return c.Next()
 			}
 		}
-		return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
-			Valid: false,
-			Error: "ip_not_allowed",
-		})
+		return c.Status(fiber.StatusForbidden).JSON(errorResponse("ip_not_allowed", "IP is not allowed"))
 	}
 }
 

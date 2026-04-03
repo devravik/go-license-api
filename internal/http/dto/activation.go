@@ -1,35 +1,92 @@
 package dto
 
 type ActivateRequest struct {
-	Key       string `json:"key"`
-	MachineID string `json:"machine_id"`
-	Hostname  string `json:"hostname"`
+	LicenseKey string `json:"license_key"`
+	Key        string `json:"key"`
+	ClientID   string `json:"client_id"`
+	MachineID  string `json:"machine_id"`
+	Hostname   string `json:"hostname"`
 }
 
 type ActivateResponse struct {
-	Activated      bool   `json:"activated"`
-	ActivationID   string `json:"activation_id,omitempty"`
-	SeatsRemaining *int   `json:"seats_remaining,omitempty"`
-	Error          string `json:"error,omitempty"`
+	Success   bool   `json:"success,omitempty"`
+	Activated bool   `json:"activated"`
+	ClientID  string `json:"client_id,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Timestamp string `json:"timestamp,omitempty"`
+	Seats     *struct {
+		Used      int `json:"used"`
+		Total     int `json:"total"`
+		Remaining int `json:"remaining"`
+	} `json:"seats,omitempty"`
+	Error *APIError `json:"error,omitempty"`
 }
 
 type DeactivateRequest struct {
-	Key          string `json:"key"`
-	ActivationID string `json:"activation_id"`
+	LicenseKey string `json:"license_key"`
+	Key        string `json:"key"`
+	ClientID   string `json:"client_id"`
 }
 
 type DeactivateResponse struct {
+	Success     bool      `json:"success,omitempty"`
 	Deactivated bool   `json:"deactivated"`
-	Error       string `json:"error,omitempty"`
+	RequestID   string `json:"request_id,omitempty"`
+	Timestamp   string `json:"timestamp,omitempty"`
+	Error       *APIError `json:"error,omitempty"`
 }
 
 // Usage tracking
 type UsageRequest struct {
-	Key   string `json:"key"`
-	Units int    `json:"units"`
+	LicenseKey string `json:"license_key"`
+	Key        string `json:"key"`
+	Units      int    `json:"units"`
+	EventID    string `json:"event_id"`
 }
 
 type UsageResponse struct {
+	Success  bool `json:"success,omitempty"`
 	Recorded bool   `json:"recorded"`
-	Error    string `json:"error,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Timestamp string `json:"timestamp,omitempty"`
+	Usage     *struct {
+		TotalUsed int  `json:"total_used"`
+		Remaining *int `json:"remaining,omitempty"`
+	} `json:"usage,omitempty"`
+	Error    *APIError `json:"error,omitempty"`
+}
+
+func (r ActivateRequest) EffectiveLicenseKey() string {
+	if r.LicenseKey != "" {
+		return r.LicenseKey
+	}
+	return r.Key
+}
+
+func (r ActivateRequest) EffectiveClientID() string {
+	if r.ClientID != "" {
+		return r.ClientID
+	}
+	return r.MachineID
+}
+
+func (r DeactivateRequest) EffectiveLicenseKey() string {
+	if r.LicenseKey != "" {
+		return r.LicenseKey
+	}
+	return r.Key
+}
+
+func (r DeactivateRequest) EffectiveClientID() string {
+	if r.ClientID != "" {
+		return r.ClientID
+	}
+	return ""
+}
+
+func (r UsageRequest) EffectiveLicenseKey() string {
+	if r.LicenseKey != "" {
+		return r.LicenseKey
+	}
+	return r.Key
 }

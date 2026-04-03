@@ -85,10 +85,10 @@ func (l *AdaptiveFailLimiter) Middleware() fiber.Handler {
 		key := l.combinedKey(ip, tenantID)
 		blocked, err := l.isBlocked(c.Context(), key)
 		if err != nil && !l.cfg.FailOpen {
-			return c.Status(fiber.StatusTooManyRequests).JSON(ErrorResponse{Valid: false, Error: "request_temporarily_blocked"})
+			return c.Status(fiber.StatusTooManyRequests).JSON(errorResponse("request_temporarily_blocked", "Request temporarily blocked"))
 		}
 		if blocked {
-			return c.Status(fiber.StatusTooManyRequests).JSON(ErrorResponse{Valid: false, Error: "ip_tenant_blocked"})
+			return c.Status(fiber.StatusTooManyRequests).JSON(errorResponse("ip_tenant_blocked", "IP/tenant temporarily blocked"))
 		}
 
 		if err := c.Next(); err != nil {
@@ -98,7 +98,7 @@ func (l *AdaptiveFailLimiter) Middleware() fiber.Handler {
 			return nil
 		}
 		if err := l.onFailure(c.Context(), ip, tenantID, key); err != nil && !l.cfg.FailOpen {
-			return c.Status(fiber.StatusTooManyRequests).JSON(ErrorResponse{Valid: false, Error: "request_temporarily_blocked"})
+			return c.Status(fiber.StatusTooManyRequests).JSON(errorResponse("request_temporarily_blocked", "Request temporarily blocked"))
 		}
 		return nil
 	}

@@ -73,7 +73,10 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 		record.LicenseID = licenseID
 		record.TenantID = tenantID
 		record.IsActive = true
-		return 0, nil
+		if seatCount == nil {
+			return -1, nil
+		}
+		return *seatCount - activeCount, nil
 	}
 
 	if seatCount != nil && activeCount >= *seatCount {
@@ -131,22 +134,18 @@ func (r *activationRepo) Release(ctx context.Context, activationID string) error
 	return err
 }
 
-func (r *activationRepo) CountActive(ctx context.Context, licenseID int) (int, error) {
-	const q = `SELECT COUNT(*) FROM activations WHERE license_id = $1 AND is_active = TRUE`
-	var count int
-	return count, r.db.QueryRow(ctx, q, licenseID).Scan(&count)
-}
-
-func (r *activationRepo) RecordUsage(ctx context.Context, licenseID, units int) error {
-	// usage_records requires tenant_id, so derive it from the license row.
+func (r *activationRepo) ReleaseByMachine(ctx context.Context, tenantID, key, machineID string) error {
 	const q = `
-		INSERT INTO usage_records (license_id, tenant_id, units)
-		SELECT $1, tenant_id, $2
-		FROM licenses
-		WHERE id = $1
+		UPDATE activations a
+		SET is_active = FALSE, released_at = NOW()
+		FROM licenses l
+		WHERE a.license_id = l.id
+		  AND l.tenant_id = $1
+		  AND l.key = $2
+		  AND a.machine_id = $3
+		  AND a.is_active = TRUE
 	`
-
-	tag, err := r.db.Exec(ctx, q, licenseID, units)
+	tag, err := r.db.Exec(ctx, q, tenantID, key, machineID)
 	if err != nil {
 		return err
 	}
@@ -154,6 +153,47 @@ func (r *activationRepo) RecordUsage(ctx context.Context, licenseID, units int) 
 		return domain.ErrLicenseNotFound
 	}
 	return nil
+}
+
+func (r *activationRepo) CountActive(ctx context.Context, licenseID int) (int, error) {
+	const q = `SELECT COUNT(*) FROM activations WHERE license_id = $1 AND is_active = TRUE`
+	var count int
+	return count, r.db.QueryRow(ctx, q, licenseID).Scan(&count)
+}
+
+func (r *activationRepo) RecordUsage(ctx context.Context, licenseID, units int) (int, *int, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update running total on licenses for fast retrieval and compute remaining using usage_limit.
+	var totalUsed int
+	var limit *int
+	const updQ = `
+		UPDATE licenses
+		SET usage_used = COALESCE(usage_used, 0) + $2
+		WHERE id = $1
+		RETURNING usage_used, usage_limit
+	`
+	if err := tx.QueryRow(ctx, updQ, licenseID, units).Scan(&totalUsed, &limit); err != nil {
+		return 0, nil, err
+	}
+	// Insert detailed record (tenant_id derived).
+	const insQ = `
+		INSERT INTO usage_records (license_id, tenant_id, units)
+		SELECT $1, tenant_id, $2
+		FROM licenses
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, insQ, licenseID, units); err != nil {
+		return 0, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, nil, err
+	}
+	return totalUsed, limit, nil
 }
 
 func isUniqueViolation(err error) bool {

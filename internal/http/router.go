@@ -110,6 +110,7 @@ func SetupRoutesV2(
 	// Signed license issuance (Tenant Protected, BYPASSES rate limiter and worker pool) if deps are present.
 	if licenseStore != nil && signerRegistry != nil {
 		app.Get("/licenses/:key/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.GetSignedLicense)
+		app.Post("/licenses/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.PostSignedLicense)
 	}
 
 	// Admin Control Plane (Protected)
