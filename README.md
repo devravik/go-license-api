@@ -1,6 +1,6 @@
 # Go License API
 
-A self-hosted license validation service built in Go. You run it alongside your product, call it to check if a license key is valid, and it handles everything else — multi-tenancy, seat tracking, signed offline licenses, key rotation, webhooks, and audit logging.
+A self-hosted license validation service built in Go. You run it alongside your product, call it to check if a license key is valid, and it handles everything else - multi-tenancy, seat tracking, signed offline licenses, key rotation, webhooks, and audit logging.
 
 ---
 
@@ -55,9 +55,9 @@ curl -X POST http://localhost:3000/licenses/validate \
 
 ## Why this exists
 
-Most apps bolt license validation onto the primary application server — a direct database query per request, no caching, no isolation. It works until it doesn't: the validation logic is scattered across the codebase, a spike in checks slows down unrelated features, and adding multi-tenancy or offline support becomes a major refactor.
+Most apps bolt license validation onto the primary application server - a direct database query per request, no caching, no isolation. It works until it doesn't: the validation logic is scattered across the codebase, a spike in checks slows down unrelated features, and adding multi-tenancy or offline support becomes a major refactor.
 
-This service moves license validation out of your app entirely. It runs as a standalone service with a single responsibility. Your app makes one HTTP call. The service handles the rest — from sub-millisecond cache lookups to key rotation to audit trails — without any of it touching your application's database or codebase.
+This service moves license validation out of your app entirely. It runs as a standalone service with a single responsibility. Your app makes one HTTP call. The service handles the rest - from sub-millisecond cache lookups to key rotation to audit trails - without any of it touching your application's database or codebase.
 
 ---
 
@@ -69,16 +69,16 @@ Your app sends a license key and product ID. The service returns whether it's va
 
 Beyond the basics, it covers the operational complexity that comes with real-world licensing:
 
-- **Multi-tenant** — one instance serves multiple independent products/teams, each isolated with their own licenses, rate limits, and API keys
-- **Seat and activation tracking** — seat-based, concurrent float, or consumption-based models
-- **Offline / signed licenses** — Ed25519-signed payloads clients verify locally without a network call
-- **Trial and grace periods** — time-limited trials and configurable grace windows after expiry
-- **Key rotation** — zero-downtime rotation for tenant API keys and signing keys
-- **Webhooks** — signed HTTP callbacks on license events (expiry, activation, revocation)
-- **Audit log** — immutable record of every action with actor, IP, timestamp, and outcome
-- **IP allowlisting** — per-tenant and admin CIDR restrictions
-- **Rate limiting** — per-tenant token bucket with adaptive abuse blocking
-- **Admin CLI** — full control-plane management from the terminal
+- **Multi-tenant** - one instance serves multiple independent products/teams, each isolated with their own licenses, rate limits, and API keys
+- **Seat and activation tracking** - seat-based, concurrent float, or consumption-based models
+- **Offline / signed licenses** - Ed25519-signed payloads clients verify locally without a network call
+- **Trial and grace periods** - time-limited trials and configurable grace windows after expiry
+- **Key rotation** - zero-downtime rotation for tenant API keys and signing keys
+- **Webhooks** - signed HTTP callbacks on license events (expiry, activation, revocation)
+- **Audit log** - immutable record of every action with actor, IP, timestamp, and outcome
+- **IP allowlisting** - per-tenant and admin CIDR restrictions
+- **Rate limiting** - per-tenant token bucket with adaptive abuse blocking
+- **Admin CLI** - full control-plane management from the terminal
 
 ---
 
@@ -165,7 +165,7 @@ Two planes, one database, no shared code paths.
  └─────────────────┘     └──────────────────────────┘
 ```
 
-PostgreSQL is the source of truth for persistence. The in-memory LRU cache is the source of truth at runtime — validation never queries the database on a cache hit. Any admin write goes to Postgres first, then updates or invalidates the cache immediately.
+PostgreSQL is the source of truth for persistence. The in-memory LRU cache is the source of truth at runtime - validation never queries the database on a cache hit. Any admin write goes to Postgres first, then updates or invalidates the cache immediately.
 
 Deep dive: [docs/architecture.md](docs/architecture.md)
 
@@ -215,7 +215,7 @@ curl http://localhost:3000/licenses/ABC-123/signed \
   -H "X-API-Key: your_api_key"
 ```
 
-Returns a signed JSON payload. The client verifies it locally using the public key from `GET /.well-known/jwks.json` — no network call needed at verification time.
+Returns a signed JSON payload. The client verifies it locally using the public key from `GET /.well-known/jwks.json` - no network call needed at verification time.
 
 ---
 
