@@ -4,6 +4,63 @@ A self-hosted license validation service built in Go. You run it alongside your 
 
 ---
 
+## Quick start
+
+**Requirements:** Go 1.21+, PostgreSQL 14+
+
+```bash
+git clone https://github.com/devravik/go-license-api.git
+cd go-license-api
+
+cp env.example .env           # set ADMIN_API_KEY and DB credentials
+
+docker compose up -d          # start Postgres
+go run ./cmd/migrate          # run migrations
+go run main.go                # start server on :3000
+```
+
+Minimum `.env` to get running:
+
+```env
+APP_MODE=multi
+PORT=3000
+ADMIN_API_KEY=your_secret_key
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=golicense
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+```
+
+Redis is optional. Skip `REDIS_URL` and it runs fine with the local LRU cache only. Full config: [env.example](env.example)
+
+Create a tenant and a license:
+
+```bash
+go run ./cmd/cli tenant create --pretty       # copy tenant_id and api_key
+go run ./cmd/cli license create --tenant=<tenant_id> --key=ABC-123 --product=my-app --expires=2027-01-01
+```
+
+Validate it:
+
+```bash
+curl -X POST http://localhost:3000/licenses/validate \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: <tenant_id>" \
+  -H "X-API-Key: <api_key>" \
+  -d '{"key": "ABC-123", "product": "my-app"}'
+```
+
+---
+
+## Why this exists
+
+Most apps bolt license validation onto the primary application server — a direct database query per request, no caching, no isolation. It works until it doesn't: the validation logic is scattered across the codebase, a spike in checks slows down unrelated features, and adding multi-tenancy or offline support becomes a major refactor.
+
+This service moves license validation out of your app entirely. It runs as a standalone service with a single responsibility. Your app makes one HTTP call. The service handles the rest — from sub-millisecond cache lookups to key rotation to audit trails — without any of it touching your application's database or codebase.
+
+---
+
 ## What it does
 
 You have a product. You sell licenses. Your app needs to check if a given license key is valid before granting access. That's what this service handles.
@@ -114,64 +171,9 @@ Deep dive: [docs/architecture.md](docs/architecture.md)
 
 ---
 
-## Quick start
+## Usage
 
-**Requirements:** Go 1.21+, PostgreSQL 14+
-
-```bash
-git clone https://github.com/devravik/go-license-api.git
-cd go-license-api
-
-cp env.example .env        # fill in DB credentials and ADMIN_API_KEY
-
-docker compose up -d       # start Postgres (or bring your own)
-go run ./cmd/migrate       # run migrations
-go run main.go             # start the server
-```
-
-Server starts on `http://localhost:3000`.
-
-**Minimum `.env`:**
-
-```env
-APP_MODE=multi
-PORT=3000
-ADMIN_API_KEY=your_secret_key
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=golicense
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
-```
-
-Redis is optional. Skip `REDIS_URL` and it runs fine with the local LRU cache only.
-
-Full configuration reference: [env.example](env.example)
-
----
-
-## Basic usage
-
-**1. Create a tenant**
-
-```bash
-go run ./cmd/cli tenant create --rps=100 --burst=200 --pretty
-```
-
-Returns a tenant ID and API key. Use both in all subsequent requests for that tenant.
-
-**2. Create a license**
-
-```bash
-go run ./cmd/cli license create \
-  --tenant=tenant_1 \
-  --key=ABC-123 \
-  --product=v-plugin \
-  --expires=2026-12-31 \
-  --meta='{"plan":"pro"}'
-```
-
-**3. Validate a license**
+**Validate a license**
 
 ```bash
 curl -X POST http://localhost:3000/licenses/validate \
@@ -195,7 +197,7 @@ curl -X POST http://localhost:3000/licenses/validate \
 }
 ```
 
-**4. Activate a seat**
+**Activate a seat**
 
 ```bash
 curl -X POST http://localhost:3000/licenses/activate \
@@ -205,7 +207,7 @@ curl -X POST http://localhost:3000/licenses/activate \
   -d '{"key": "ABC-123", "product": "v-plugin", "machine_id": "hw-fingerprint-hash", "hostname": "workstation-1"}'
 ```
 
-**5. Get a signed offline license**
+**Get a signed offline license**
 
 ```bash
 curl http://localhost:3000/licenses/ABC-123/signed \
