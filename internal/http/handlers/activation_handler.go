@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -106,6 +107,7 @@ func (h *Handler) Activate(c fiber.Ctx) error {
 		case errors.Is(err, domain.ErrLicenseGracePeriod):
 			return c.Status(fiber.StatusForbidden).JSON(dto.ActivateResponse{Success: false, Activated: false, RequestID: requestID(c), Timestamp: nowISO(), Error: dto.NewError("license_in_grace_period", "License is in grace period")})
 		default:
+			log.Printf("event=activate_error tenant=%s key=%s client_id=%s err=%v", tenantID, licenseKey, clientID, err)
 			return c.Status(fiber.StatusInternalServerError).JSON(dto.ActivateResponse{Success: false, Activated: false, RequestID: requestID(c), Timestamp: nowISO(), Error: dto.NewError("internal_error", "Internal server error")})
 		}
 	}

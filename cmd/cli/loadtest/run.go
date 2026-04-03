@@ -67,9 +67,15 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 			if err != nil {
 				return jsonErr("seed_failed", err)
 			}
+			// Include raw API keys in output so they can be piped to `run --tenant-keys`.
+			tenantOut := make([]map[string]string, len(arts.Tenants))
+			for i, t := range arts.Tenants {
+				tenantOut[i] = map[string]string{"id": t.ID, "api_key": t.APIKey}
+			}
 			jsonOut(map[string]any{
 				"tenants":             len(arts.Tenants),
 				"licenses_per_tenant": licenses,
+				"tenant_keys":         tenantOut,
 			})
 			return nil
 		},
@@ -82,6 +88,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 	var adminHTTP bool
 	var adminKey string
 	var doSeed bool
+	var tenantKeysJSON string // JSON from seed output: [{"id":"...","api_key":"..."}]
 
 	runCmd := &cobra.Command{
 		Use:   "run",
@@ -137,6 +144,15 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 					return jsonErr("load_existing_failed", err)
 				}
 				arts = existing
+
+				// If the caller provided raw API keys from a prior seed run,
+				// overwrite the hashed keys that came from the DB so HTTP
+				// workers can send the correct plaintext X-API-Key header.
+				if tenantKeysJSON != "" {
+					if err := injectRawKeys(arts, tenantKeysJSON); err != nil {
+						return jsonErr("invalid_tenant_keys", err)
+					}
+				}
 			}
 
 			// Always-on error logger for internal/fatal/timeout errors.
@@ -193,6 +209,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 	runCmd.Flags().BoolVar(&adminHTTP, "admin-http", false, "Seed tenants via server Admin HTTP instead of direct DB")
 	runCmd.Flags().StringVar(&adminKey, "admin-key", "", "Admin key for Admin HTTP (required when --admin-http)")
 	runCmd.Flags().BoolVar(&doSeed, "seed", false, "Seed data before run (default false: use existing data)")
+	runCmd.Flags().StringVar(&tenantKeysJSON, "tenant-keys", "", `Raw API keys from 'seed' output: '[{"id":"...","api_key":"..."}]'`)
 	runCmd.Flags().IntVar(&burst, "burst", 0, "Burst tokens")
 	runCmd.Flags().IntVar(&lowRPSTenants, "low-rps-tenants", 0, "Number of low-RPS tenants to stress limiter")
 	runCmd.Flags().BoolVar(&coldStart, "cold-start", false, "Do not prewarm caches")
@@ -389,4 +406,46 @@ func jsonOut(v any) {
 	if err := enc.Encode(v); err != nil {
 		log.Printf("encode json: %v", err)
 	}
+}
+
+// injectRawKeys overwrites corpus TenantInfo.APIKey with the plaintext keys
+// returned by the 'seed' command.  The DB always stores hashes, so HTTP
+// workers must receive the original raw key to send as X-API-Key.
+//
+// Accepts two JSON shapes:
+//   - array:  [{"id":"…","api_key":"…"}, …]
+//   - object: {"tenant_keys":[{"id":"…","api_key":"…"}, …]}  (full seed output)
+func injectRawKeys(arts *SeedArtifacts, raw string) error {
+	type entry struct {
+		ID     string `json:"id"`
+		APIKey string `json:"api_key"`
+	}
+
+	var entries []entry
+
+	// Try array first, then full seed-output object.
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		var wrapper struct {
+			TenantKeys []entry `json:"tenant_keys"`
+		}
+		if err2 := json.Unmarshal([]byte(raw), &wrapper); err2 != nil {
+			return fmt.Errorf("expected JSON array or seed output object: %w", err)
+		}
+		entries = wrapper.TenantKeys
+	}
+
+	// Build a lookup so we don't do O(n²).
+	keyByID := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.ID != "" && e.APIKey != "" {
+			keyByID[e.ID] = e.APIKey
+		}
+	}
+
+	for i, t := range arts.Tenants {
+		if k, ok := keyByID[t.ID]; ok {
+			arts.Tenants[i].APIKey = k
+		}
+	}
+	return nil
 }

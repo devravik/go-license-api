@@ -8,6 +8,7 @@ import (
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	security "github.com/devravik/go-license-api/internal/security"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -74,15 +75,20 @@ func TestTenantAuth_SuspendedTenant(t *testing.T) {
 }
 
 func TestTenantAuth_ValidSetsContext(t *testing.T) {
+	const rawKey = "0123456789abcdef"
+	keyHash := security.HashAPIKey(rawKey)
+
 	app := fiber.New()
-	cache := &mockTenantCache{tenant: &domain.Tenant{ID: "tenant-0001", APIKey: "0123456789abcdef", Status: "active"}}
+	// The tenant's APIKey field always holds the hash (never plaintext).
+	cache := &mockTenantCache{tenant: &domain.Tenant{ID: "tenant-0001", APIKey: keyHash, Status: "active"}}
 	app.Post("/licenses/validate",
 		middleware.TenantAuth("multi", nil, cache),
 		func(c fiber.Ctx) error {
 			if c.Locals("tenant_id") != "tenant-0001" {
 				return c.SendStatus(500)
 			}
-			if c.Locals("api_key") != "0123456789abcdef" {
+			// api_key context value is the hash, not the raw key.
+			if c.Locals("api_key") != keyHash {
 				return c.SendStatus(500)
 			}
 			return c.SendStatus(200)
@@ -90,7 +96,7 @@ func TestTenantAuth_ValidSetsContext(t *testing.T) {
 	)
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", "0123456789abcdef")
+	req.Header.Set("X-API-Key", rawKey) // client always sends the raw key
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)

@@ -264,7 +264,8 @@ func performHTTP(ctx context.Context, baseURL string, t TenantInfo, key string, 
 		payload = map[string]any{"key": key}
 	case OpActivate:
 		endpoint = "/licenses/activate"
-		payload = map[string]any{"key": key, "machine_id": "machine-" + randomKey(rng)}
+		// Use client_id per hardened API (machine_id kept for backward compat server-side).
+		payload = map[string]any{"key": key, "client_id": "client-" + randomKey(rng)}
 	case OpUsage:
 		endpoint = "/licenses/usage"
 		payload = map[string]any{"key": key, "units": 1 + rng.Intn(5)}

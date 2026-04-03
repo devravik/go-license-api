@@ -52,11 +52,17 @@ func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key str
 		return 0, domain.ErrLicenseExpired
 	}
 
-	// Aggregate active count and duplicate active activation in one query.
+	// Aggregate active count and detect existing active activation for this client.
+	// Avoid MAX(uuid) to support older Postgres versions lacking that aggregate.
 	const usageQ = `
 		SELECT
 			COUNT(*) FILTER (WHERE is_active = TRUE) AS active_count,
-			MAX(CASE WHEN client_id = $2 AND is_active THEN id END) AS existing_id
+			(
+				SELECT id::text
+				FROM activations
+				WHERE license_id = $1 AND client_id = $2 AND is_active = TRUE
+				LIMIT 1
+			) AS existing_id
 		FROM activations
 		WHERE license_id = $1
 	`

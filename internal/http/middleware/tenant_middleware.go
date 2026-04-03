@@ -7,6 +7,7 @@ import (
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http/dto"
+	security "github.com/devravik/go-license-api/internal/security"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -35,23 +36,26 @@ func TenantAuth(mode string, defaultTenant *domain.Tenant, cache TenantCache) fi
 		if mode == "single" && defaultTenant != nil {
 			c.Locals(tenantCtxKey, defaultTenant)
 			c.Locals(tenantIDCtxKey, defaultTenant.ID)
-			c.Locals(apiKeyCtxKey, defaultTenant.APIKey)
+			c.Locals(apiKeyCtxKey, defaultTenant.APIKey) // already a hash in single-tenant mode
 			return c.Next()
 		}
 
-		apiKey := strings.TrimSpace(c.Get("X-API-Key"))
-		if apiKey == "" {
+		rawKey := strings.TrimSpace(c.Get("X-API-Key"))
+		if rawKey == "" {
 			log.Printf("event=auth_failure reason=missing_api_key path=%s", c.Path())
 			return c.Status(fiber.StatusUnauthorized).JSON(errorResponse("missing_api_key", "Missing API key"))
 		}
-		if len(apiKey) < 16 {
+		if len(rawKey) < 16 {
 			log.Printf("event=auth_failure reason=invalid_api_key_format path=%s", c.Path())
 			return c.Status(fiber.StatusUnauthorized).JSON(errorResponse("invalid_api_key_format", "Invalid API key format"))
 		}
 
-		tenant, err := cache.GetByAPIKey(c.Context(), apiKey)
+		// Hash before cache/DB lookup so the raw key never leaves this layer.
+		keyHash := security.HashAPIKey(rawKey)
+
+		tenant, err := cache.GetByAPIKey(c.Context(), keyHash)
 		if err != nil || tenant == nil {
-			log.Printf("event=auth_failure reason=invalid_api_key path=%s api_key_len=%d", c.Path(), len(apiKey))
+			log.Printf("event=auth_failure reason=invalid_api_key path=%s api_key_len=%d", c.Path(), len(rawKey))
 			return c.Status(fiber.StatusUnauthorized).JSON(errorResponse("invalid_api_key", "Invalid API key"))
 		}
 		if tenant.IsSuspended() {
@@ -61,7 +65,7 @@ func TenantAuth(mode string, defaultTenant *domain.Tenant, cache TenantCache) fi
 
 		c.Locals(tenantCtxKey, tenant)
 		c.Locals(tenantIDCtxKey, tenant.ID)
-		c.Locals(apiKeyCtxKey, apiKey)
+		c.Locals(apiKeyCtxKey, keyHash)
 		return c.Next()
 	}
 }

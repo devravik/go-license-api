@@ -22,7 +22,7 @@ func NewTenantRepo(db *pgxpool.Pool) domain.TenantRepository {
 func (r *tenantRepo) FindByID(ctx context.Context, id string) (*domain.Tenant, error) {
 	const q = `
 		SELECT
-			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
+			id, api_key_hash, COALESCE(old_api_key_hash, '') AS old_api_key_hash, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
@@ -41,11 +41,12 @@ func (r *tenantRepo) FindByID(ctx context.Context, id string) (*domain.Tenant, e
 	return r.scanTenant(r.db.QueryRow(ctx, q, id))
 }
 
-func (r *tenantRepo) FindByAPIKey(ctx context.Context, apiKey string) (*domain.Tenant, error) {
-	// Supports EC-08 key rotation by matching both current api_key and old_api_key.
+// FindByAPIKey accepts the SHA-256 hash of the raw API key (never the plaintext).
+func (r *tenantRepo) FindByAPIKey(ctx context.Context, apiKeyHash string) (*domain.Tenant, error) {
+	// Supports EC-08 key rotation by matching both current and old key hashes.
 	const q = `
 		SELECT
-			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
+			id, api_key_hash, COALESCE(old_api_key_hash, '') AS old_api_key_hash, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
@@ -58,17 +59,17 @@ func (r *tenantRepo) FindByAPIKey(ctx context.Context, apiKey string) (*domain.T
 			COALESCE(metadata, '{}'::jsonb) AS metadata,
 			updated_at, deleted_at
 		FROM tenants
-		WHERE api_key = $1 OR old_api_key = $1
+		WHERE api_key_hash = $1 OR old_api_key_hash = $1
 		LIMIT 1
 	`
 
-	return r.scanTenant(r.db.QueryRow(ctx, q, apiKey))
+	return r.scanTenant(r.db.QueryRow(ctx, q, apiKeyHash))
 }
 
 func (r *tenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
 	const q = `
 		SELECT
-			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
+			id, api_key_hash, COALESCE(old_api_key_hash, '') AS old_api_key_hash, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
@@ -119,9 +120,10 @@ func (r *tenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
 
 func (r *tenantRepo) Create(ctx context.Context, t *domain.Tenant) error {
 	const q = `
-		INSERT INTO tenants (id, api_key, rps, burst, status, name, slug, email, company, plan, max_licenses, metadata)
+		INSERT INTO tenants (id, api_key_hash, rps, burst, status, name, slug, email, company, plan, max_licenses, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
+	// t.APIKey already holds the SHA-256 hash (set by admin_service before calling Create).
 	_, err := r.db.Exec(ctx, q, t.ID, t.APIKey, t.RPS, t.Burst, t.Status, t.Name, t.Slug, t.Email, t.Company, t.Plan, t.MaxLicenses, t.Metadata)
 	return err
 }
@@ -153,18 +155,19 @@ func (r *tenantRepo) UpdateIPAllowlist(ctx context.Context, id string, cidrs []s
 	return err
 }
 
-func (r *tenantRepo) RotateAPIKey(ctx context.Context, id, newKey string, gracePeriod time.Duration) error {
+// RotateAPIKey accepts the SHA-256 hash of the new raw API key (never plaintext).
+func (r *tenantRepo) RotateAPIKey(ctx context.Context, id, newKeyHash string, gracePeriod time.Duration) error {
 	const q = `
 		UPDATE tenants
 		SET
-			old_api_key = api_key,
+			old_api_key_hash = api_key_hash,
 			old_key_expires_at = NOW() + ($3 * INTERVAL '1 second'),
-			api_key = $2
+			api_key_hash = $2
 		WHERE id = $1
 	`
 
 	seconds := int64(gracePeriod / time.Second)
-	_, err := r.db.Exec(ctx, q, id, newKey, seconds)
+	_, err := r.db.Exec(ctx, q, id, newKeyHash, seconds)
 	return err
 }
 
@@ -197,7 +200,7 @@ func (r *tenantRepo) scanTenant(row pgx.Row) (*domain.Tenant, error) {
 func (r *tenantRepo) FindBySlug(ctx context.Context, slug string) (*domain.Tenant, error) {
 	const q = `
 		SELECT
-			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
+			id, api_key_hash, COALESCE(old_api_key_hash, '') AS old_api_key_hash, old_key_expires_at,
 			rps, burst, status,
 			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,

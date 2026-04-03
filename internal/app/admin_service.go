@@ -10,6 +10,7 @@ import (
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/ports"
+	security "github.com/devravik/go-license-api/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -89,7 +90,7 @@ func (s *adminService) CreateTenant(ctx context.Context, rps, burst int) (*domai
 
 	tenant := &domain.Tenant{
 		ID:     uuid.New().String(),
-		APIKey: apiKey,
+		APIKey: security.HashAPIKey(apiKey), // store hash; caller receives plaintext
 		RPS:    rps,
 		Burst:  burst,
 		Status: "active",
@@ -184,7 +185,8 @@ func (s *adminService) RotateTenantAPIKey(ctx context.Context, tenantID string, 
 		return "", time.Time{}, fmt.Errorf("generate api key: %w", err)
 	}
 
-	if err := s.tenants.RotateAPIKey(ctx, tenantID, newKey, gracePeriod); err != nil {
+	newKeyHash := security.HashAPIKey(newKey)
+	if err := s.tenants.RotateAPIKey(ctx, tenantID, newKeyHash, gracePeriod); err != nil {
 		return "", time.Time{}, fmt.Errorf("rotate api key: %w", err)
 	}
 	s.tenCache.InvalidateByTenantID(ctx, tenantID)

@@ -12,6 +12,7 @@ import (
 	httpapi "github.com/devravik/go-license-api/internal/http"
 	"github.com/devravik/go-license-api/internal/http/middleware"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
+	security "github.com/devravik/go-license-api/internal/security"
 	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
@@ -73,8 +74,9 @@ func newRouterTestApp(t *testing.T) *fiber.App {
 	admin := &dummyAdmin{}
 	l1, _ := cache.NewL1Cache(1000)
 	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
-	tenantStore.Set(context.Background(), "tenant-0001", "0123456789abcdef", &domain.Tenant{
-		ID: "tenant-0001", APIKey: "0123456789abcdef", RPS: 100, Burst: 200, Status: "active",
+	routerKeyHash := security.HashAPIKey("0123456789abcdef")
+	tenantStore.Set(context.Background(), "tenant-0001", routerKeyHash, &domain.Tenant{
+		ID: "tenant-0001", APIKey: routerKeyHash, RPS: 100, Burst: 200, Status: "active",
 	})
 	pool := worker.NewPool(1, 8, val, cfg.WorkerTimeout)
 	pool.Start(context.Background())

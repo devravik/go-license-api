@@ -6,10 +6,12 @@ import "time"
 type Tenant struct {
 	ID string `json:"id"`
 
-	APIKey string `json:"api_key"`
+	// APIKey stores the SHA-256 hash of the raw API key.
+	// The plaintext key is never persisted — only returned once on creation/rotation.
+	APIKey string `json:"api_key_hash"`
 
-	// EC-08: dual-key rotation fields — old key stays valid until OldKeyExpiresAt.
-	OldAPIKey       string     `json:"old_api_key,omitempty"`
+	// EC-08: dual-key rotation fields — old key hash stays valid until OldKeyExpiresAt.
+	OldAPIKey       string     `json:"old_api_key_hash,omitempty"`
 	OldKeyExpiresAt *time.Time `json:"old_key_expires_at,omitempty"`
 
 	RPS    int    `json:"rps"`
@@ -39,13 +41,14 @@ func (t *Tenant) IsSuspended() bool {
 	return t.Status == "suspended" || t.Status == "deleted"
 }
 
-// AcceptsKey returns true if the given API key is valid for this tenant.
-// EC-08: checks both the current key and a rotated-away key during its grace period.
-func (t *Tenant) AcceptsKey(key string) bool {
-	if t.APIKey == key {
+// AcceptsKey returns true if the given key hash matches this tenant's current
+// or (during grace period) rotated-away API key hash.
+// Callers MUST pass security.HashAPIKey(rawKey) — never the plaintext key.
+func (t *Tenant) AcceptsKey(keyHash string) bool {
+	if t.APIKey == keyHash {
 		return true
 	}
-	if t.OldAPIKey == key && t.OldKeyExpiresAt != nil && time.Now().Before(*t.OldKeyExpiresAt) {
+	if t.OldAPIKey == keyHash && t.OldKeyExpiresAt != nil && time.Now().Before(*t.OldKeyExpiresAt) {
 		return true
 	}
 	return false

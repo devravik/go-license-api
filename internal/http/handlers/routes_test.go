@@ -14,6 +14,7 @@ import (
 	"github.com/devravik/go-license-api/internal/http/dto"
 	"github.com/devravik/go-license-api/internal/http/middleware"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
+	security "github.com/devravik/go-license-api/internal/security"
 	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
@@ -131,9 +132,10 @@ func newTestAppWithConfig(t *testing.T, cfg *setup.Config, val *mockValidationSe
 		t.Fatalf("new l1 cache: %v", err)
 	}
 	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
-	tenantStore.Set(context.Background(), "tenant-0001", "0123456789abcdef", &domain.Tenant{
+	keyHash := security.HashAPIKey("0123456789abcdef")
+	tenantStore.Set(context.Background(), "tenant-0001", keyHash, &domain.Tenant{
 		ID:     "tenant-0001",
-		APIKey: "0123456789abcdef",
+		APIKey: keyHash, // domain field holds the hash, never plaintext
 		RPS:    100,
 		Burst:  200,
 		Status: "active",
@@ -203,7 +205,7 @@ func TestValidateRoute_Success(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	if val.lastTenantID != "tenant-0001" || val.lastAPIKey != "0123456789abcdef" || val.lastKey != "abc-123" || val.lastProd != "pro" {
+	if val.lastTenantID != "tenant-0001" || val.lastAPIKey != security.HashAPIKey("0123456789abcdef") || val.lastKey != "abc-123" || val.lastProd != "pro" {
 		t.Fatalf("validation service called with unexpected args: %+v", val)
 	}
 }
@@ -415,9 +417,10 @@ func TestValidateRoute_BypassesPool(t *testing.T) {
 		t.Fatalf("new l1 cache: %v", err)
 	}
 	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
-	tenantStore.Set(context.Background(), "tenant-0001", "0123456789abcdef", &domain.Tenant{
+	bypassKeyHash := security.HashAPIKey("0123456789abcdef")
+	tenantStore.Set(context.Background(), "tenant-0001", bypassKeyHash, &domain.Tenant{
 		ID:     "tenant-0001",
-		APIKey: "0123456789abcdef",
+		APIKey: bypassKeyHash,
 		RPS:    100,
 		Burst:  200,
 		Status: "active",
@@ -427,7 +430,7 @@ func TestValidateRoute_BypassesPool(t *testing.T) {
 	// Fill the single-slot queue; with zero workers it remains full.
 	ok := pool.Enqueue(&worker.ValidateJob{
 		TenantID:   "tenant-0001",
-		APIKey:     "0123456789abcdef",
+		APIKey:     bypassKeyHash,
 		LicenseKey: "abc-123",
 		Product:    "pro",
 		Ctx:        context.Background(),
