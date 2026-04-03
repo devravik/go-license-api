@@ -39,7 +39,7 @@ func (h *Handler) CreateTenant(c fiber.Ctx) error {
 
 	tenant, apiKey, err := h.base.AdminService.CreateTenant(c.Context(), req.RPS, req.Burst)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -63,7 +63,7 @@ func (h *Handler) RevokeLicense(c fiber.Ctx) error {
 	}
 	// Backward-compatible: AdminService interface keeps original signature (no reason).
 	if err := h.base.AdminService.RevokeLicense(c.Context(), req.TenantID, key); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }
@@ -76,7 +76,7 @@ func (h *Handler) SuspendTenant(c fiber.Ctx) error {
 	var req dto.AdminSuspendTenantRequest
 	_ = c.Bind().Body(&req)
 	if err := h.base.AdminService.SuspendTenant(c.Context(), tenantID, req.Reason); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }
@@ -87,7 +87,7 @@ func (h *Handler) ReinstateTenant(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id_required"})
 	}
 	if err := h.base.AdminService.ReinstateTenant(c.Context(), tenantID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 	return c.JSON(fiber.Map{"status": "active"})
 }
@@ -98,7 +98,7 @@ func (h *Handler) DeleteTenant(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant_id_required"})
 	}
 	if err := h.base.AdminService.DeleteTenant(c.Context(), tenantID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 	return c.Status(fiber.StatusNoContent).Send(nil)
 }
@@ -121,7 +121,7 @@ func (h *Handler) RotateTenantKey(c fiber.Ctx) error {
 
 	newKey, expiresAt, err := h.base.AdminService.RotateTenantAPIKey(c.Context(), tenantID, time.Duration(req.GraceMinutes)*time.Minute)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 	return c.JSON(fiber.Map{
 		"new_api_key":              newKey,
@@ -139,7 +139,7 @@ func (h *Handler) UpdateTenantLimits(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
 	}
 	if err := h.base.AdminService.UpdateTenantLimits(c.Context(), tenantID, req.RPS, req.Burst); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_limits"})
 	}
 	return c.JSON(fiber.Map{"status": "updated"})
 }
@@ -154,7 +154,7 @@ func (h *Handler) UpdateTenantIPAllowlist(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
 	}
 	if err := h.base.AdminService.UpdateTenantIPAllowlist(c.Context(), tenantID, req.CIDRs); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
 	return c.JSON(fiber.Map{"status": "updated"})
 }
@@ -174,7 +174,7 @@ func (h *Handler) RegisterWebhook(c fiber.Ctx) error {
 	}
 	// SSRF guard: validate URL before persisting
 	if err := crypto.IsSafeWebhookURL(req.URL); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_webhook_url", "detail": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_webhook_url"})
 	}
 	if len(h.base.WebhookEncKey) != 32 {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "webhook_encryption_key_invalid"})
@@ -211,7 +211,7 @@ func (h *Handler) UpdateTenantProfile(c fiber.Ctx) error {
 		UpdateTenantProfile(ctx context.Context, tenantID string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error
 	}); ok {
 		if err := svc.UpdateTenantProfile(c.Context(), tenantID, req.Name, req.Slug, req.Email, req.Company, req.Plan, req.MaxLicenses, req.Metadata); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 		}
 		return c.JSON(fiber.Map{"status": "updated"})
 	}

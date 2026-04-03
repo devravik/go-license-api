@@ -45,7 +45,7 @@ func Load() *Config {
 		// Prefer conventional PORT, fall back to legacy APP_PORT
 		AppPort:  getEnv("PORT", getEnv("APP_PORT", "3000")),
 		AdminKey: getEnv("ADMIN_API_KEY", ""),
-		AppMode:  getEnv("APP_MODE", "single"),
+		AppMode:  getEnv("APP_MODE", "multi"),
 		// Use standard "development" instead of "develop"
 		AppEnv:             getEnv("APP_ENV", "development"),
 		JSONEngine:         getEnv("JSON_ENGINE", "std"),

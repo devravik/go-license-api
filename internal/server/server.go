@@ -119,9 +119,20 @@ func New() (*Server, *setup.Config) {
 				code = e.Code
 			}
 
+			// Log detailed error server-side with request context; do not leak to clients.
+			reqID := strings.TrimSpace(c.Get("X-Request-ID"))
+			if reqID == "" {
+				reqID = strings.TrimSpace(c.GetRespHeader("X-Request-ID"))
+			}
+			log.Printf("event=http_error path=%s method=%s status=%d request_id=%s err=%v",
+				c.Path(), c.Method(), code, reqID, err)
+
+			// Return a safe, generic error response.
+			// Keep the minimal schema aligned with validation responses that may check `valid`.
 			return c.Status(code).JSON(fiber.Map{
-				"valid": false,
-				"error": err.Error(),
+				"valid":      false,
+				"error":      "internal_error",
+				"request_id": reqID,
 			})
 		},
 	}
