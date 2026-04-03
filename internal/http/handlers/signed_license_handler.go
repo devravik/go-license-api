@@ -7,7 +7,10 @@ import (
 )
 
 func (h *Handler) GetSignedLicense(c fiber.Ctx) error {
-	key := c.Params("key")
+	key := c.Params("license_key")
+	if key == "" {
+		key = c.Params("key")
+	}
 	tenant := middleware.TenantFromCtx(c)
 
 	license, err := h.LicenseStore.Get(c.Context(), tenant.ID, key)

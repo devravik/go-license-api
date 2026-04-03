@@ -5,7 +5,9 @@ type LicenseValidationRequest struct {
 	Key        string `json:"key"`
 	ClientID   string `json:"client_id"`
 	MachineID  string `json:"machine_id"`
-	Product    string `json:"product"`
+	// Preferred: product_code. Deprecated alias: product.
+	ProductCode string `json:"product_code"`
+	Product     string `json:"product"`
 }
 
 func (r LicenseValidationRequest) EffectiveLicenseKey() string {
@@ -20,6 +22,14 @@ func (r LicenseValidationRequest) EffectiveClientID() string {
 		return r.ClientID
 	}
 	return r.MachineID
+}
+
+// EffectiveProductCode returns the preferred product_code, falling back to legacy product.
+func (r LicenseValidationRequest) EffectiveProductCode() string {
+	if r.ProductCode != "" {
+		return r.ProductCode
+	}
+	return r.Product
 }
 type SignedLicenseRequest struct {
 	LicenseKey string `json:"license_key"`

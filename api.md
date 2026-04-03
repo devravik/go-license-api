@@ -150,14 +150,16 @@ Content-Type: application/json
 Request attributes:
 
 - `license_key` (string, required): license key
-- `product` (string, optional): expected product code/name to match
+- `client_id` (string, optional): normalized identifier where license is used (e.g., `example.com` or device id)
+- `product_code` (string, optional): expected product code to match
 
 Example request:
 
 ```json
 {
   "license_key": "LIC-ABC-123",
-  "product": "desktop-pro"
+  "client_id": "example.com",
+  "product_code": "desktop-pro"
 }
 ```
 
@@ -165,8 +167,9 @@ Success response:
 
 ```json
 {
+  "success": true,
   "valid": true,
-  "meta": {
+  "license": {
     "plan": "pro",
     "product": "desktop-pro",
     "expires_at": "2026-12-31T23:59:59Z",
@@ -176,7 +179,9 @@ Success response:
     "features": ["offline", "priority_support"],
     "version": 3,
     "in_grace_period": false
-  }
+  },
+  "request_id": "req-1736040000000000000",
+  "timestamp": "2026-04-03T12:00:00Z"
 }
 ```
 
@@ -184,8 +189,14 @@ Invalid response example:
 
 ```json
 {
+  "success": false,
   "valid": false,
-  "error": "license_not_found"
+  "error": {
+    "code": "license_not_found",
+    "message": "License not found"
+  },
+  "request_id": "req-1736040000000000001",
+  "timestamp": "2026-04-03T12:00:00Z"
 }
 ```
 
@@ -229,13 +240,16 @@ Success response:
 
 ```json
 {
+  "success": true,
   "activated": true,
   "client_id": "example.com",
   "seats": {
     "used": 6,
     "total": 10,
     "remaining": 4
-  }
+  },
+  "request_id": "req-1736040000000000100",
+  "timestamp": "2026-04-03T12:00:01Z"
 }
 ```
 
@@ -243,8 +257,14 @@ Error response example:
 
 ```json
 {
+  "success": false,
   "activated": false,
-  "error": "seat_limit_reached"
+  "error": {
+    "code": "seat_limit_reached",
+    "message": "Seat limit reached"
+  },
+  "request_id": "req-1736040000000000101",
+  "timestamp": "2026-04-03T12:00:01Z"
 }
 ```
 
@@ -290,7 +310,10 @@ Success response:
 
 ```json
 {
-  "deactivated": true
+  "success": true,
+  "deactivated": true,
+  "request_id": "req-1736040000000000200",
+  "timestamp": "2026-04-03T12:00:02Z"
 }
 ```
 
@@ -298,8 +321,14 @@ Error response example:
 
 ```json
 {
+  "success": false,
   "deactivated": false,
-  "error": "license_not_found"
+  "error": {
+    "code": "license_not_found",
+    "message": "License not found"
+  },
+  "request_id": "req-1736040000000000201",
+  "timestamp": "2026-04-03T12:00:02Z"
 }
 ```
 
@@ -338,7 +367,14 @@ Success response:
 
 ```json
 {
-  "recorded": true
+  "success": true,
+  "recorded": true,
+  "usage": {
+    "total_used": 120,
+    "remaining": 880
+  },
+  "request_id": "req-1736040000000000300",
+  "timestamp": "2026-04-03T12:00:03Z"
 }
 ```
 
@@ -346,8 +382,14 @@ Error response example:
 
 ```json
 {
+  "success": false,
   "recorded": false,
-  "error": "invalid_units"
+  "error": {
+    "code": "invalid_units",
+    "message": "Invalid usage units"
+  },
+  "request_id": "req-1736040000000000301",
+  "timestamp": "2026-04-03T12:00:03Z"
 }
 ```
 
@@ -367,13 +409,15 @@ Possible errors:
 
 ### 5) Get Signed License (if signing enabled)
 
-- **Method:** `GET`
-- **Path:** `/licenses/:key/signed`
-- **Auth:** tenant headers required
+- Methods:
+  - `GET /licenses/:license_key/signed` (preferred)
+  - `GET /licenses/:key/signed` (legacy)
+  - `POST /licenses/signed` (preferred)
+- Auth: tenant header required
 
-Path parameter:
+Path/body parameter:
 
-- `key` (string, required): license key
+- `license_key` (string, required): license key
 
 Success response shape:
 
@@ -459,7 +503,7 @@ Success response:
 Request attributes:
 
 - `tenant_id` (string, required)
-- `key` (string, required)
+- `license_key` (string, required)
 - `reason` (string, optional)
 
 Example request:
@@ -467,7 +511,7 @@ Example request:
 ```json
 {
   "tenant_id": "9f8f9d4b-904e-4e18-b8b3-2ef6723f6112",
-  "key": "LIC-ABC-123",
+  "license_key": "LIC-ABC-123",
   "reason": "fraud"
 }
 ```
@@ -617,6 +661,34 @@ Success response:
 }
 ```
 
+Security constraints on `url`:
+
+- Must use `https` scheme
+- Must resolve to public IPs only (no private/loopback/link-local, including: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, ::1/128, fc00::/7)
+- Subject to DNS-rebinding protections at dispatch time (IP rechecked during connection)
+- Redirects are not followed; responses >299 are treated as failures
+- Delivery client enforces timeouts (default ~10s)
+
+On violation, the server returns:
+
+```json
+{
+  "error": "invalid_webhook_url",
+  "detail": "only https scheme allowed for webhooks"
+}
+```
+
+Delivery headers:
+
+- `X-Webhook-Version: v1`
+- `X-Webhook-Id: <event-id>`
+- `X-Webhook-Attempt: <1..5>`
+- `X-Body-SHA256: <hex>`
+- `X-License-Timestamp: <unix-seconds>`
+- `X-License-Signature: v1=<hex-hmac-sha256>`
+
+Payload includes a `version` field, currently `"v1"`. Max payload size is 256KB; larger payloads are dropped and logged. Retries follow 1s → 5s → 25s → 2m → 10m; redirects are not followed.
+
 ---
 
 ### 9) Rotate Tenant API Key
@@ -730,19 +802,19 @@ Success response:
 
 Tenant auth failures:
 
-- `401 {"valid":false,"error":"missing_api_key"}`
-- `401 {"valid":false,"error":"invalid_api_key_format"}`
-- `401 {"valid":false,"error":"invalid_api_key"}`
-- `403 {"valid":false,"error":"tenant_suspended"}`
+- `401 {"success":false,"error":{"code":"missing_api_key","message":"Missing API key"}}`
+- `401 {"success":false,"error":{"code":"invalid_api_key_format","message":"Invalid API key format"}}`
+- `401 {"success":false,"error":{"code":"invalid_api_key","message":"Invalid API key"}}`
+- `403 {"success":false,"error":{"code":"tenant_suspended","message":"Tenant suspended"}}`
 
 Admin auth failures:
 
-- `401 {"valid":false,"error":"invalid_admin_key"}`
-- `403 {"valid":false,"error":"ip_not_allowed"}`
+- `401 {"success":false,"error":{"code":"invalid_admin_key","message":"Invalid admin key"}}`
+- `403 {"success":false,"error":{"code":"ip_not_allowed","message":"IP is not allowed"}}`
 
 Rate limiting:
 
-- `429 {"valid":false,"error":"rate_limit_exceeded"}`
+- `429 {"success":false,"error":{"code":"rate_limit_exceeded","message":"Rate limit exceeded"}}`
 
 ---
 
@@ -754,7 +826,7 @@ Rate limiting:
 curl -X POST http://localhost:3000/licenses/validate \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $TENANT_API_KEY" \
-  -d '{"license_key":"LIC-ABC-123","product":"desktop-pro"}'
+  -d '{"license_key":"LIC-ABC-123","client_id":"example.com","product_code":"desktop-pro"}'
 ```
 
 ### Activate
@@ -765,6 +837,15 @@ curl -X POST http://localhost:3000/licenses/activate \
   -H "X-API-Key: $TENANT_API_KEY" \
   -H "Idempotency-Key: act-001" \
   -d '{"license_key":"LIC-ABC-123","client_id":"example.com","hostname":"dev-box-01"}'
+```
+
+### Signed License (preferred JSON)
+
+```bash
+curl -X POST http://localhost:3000/licenses/signed \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $TENANT_API_KEY" \
+  -d '{"license_key":"LIC-ABC-123"}'
 ```
 
 ### Admin Create Tenant

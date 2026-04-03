@@ -109,6 +109,9 @@ func SetupRoutesV2(
 
 	// Signed license issuance (Tenant Protected, BYPASSES rate limiter and worker pool) if deps are present.
 	if licenseStore != nil && signerRegistry != nil {
+		// Preferred path using :license_key
+		app.Get("/licenses/:license_key/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.GetSignedLicense)
+		// Legacy alias retained for backward compatibility
 		app.Get("/licenses/:key/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.GetSignedLicense)
 		app.Post("/licenses/signed", middleware.TenantAuth(cfg.AppMode, nil, tenantStore), h.PostSignedLicense)
 	}

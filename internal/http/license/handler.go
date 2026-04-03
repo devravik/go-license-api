@@ -56,7 +56,7 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), h.base.Cfg.ValidationTimeout)
 	defer cancel()
 
-	result, err := h.base.ValidationService.Validate(ctx, tenantID, apiKey, licenseKey, req.Product)
+	result, err := h.base.ValidationService.Validate(ctx, tenantID, apiKey, licenseKey, req.EffectiveProductCode())
 	if err != nil {
 		if ctx.Err() != nil {
 			return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{

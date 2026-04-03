@@ -8,13 +8,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
-	"github.com/devravik/go-license-api/internal/security"
+	crypto "github.com/devravik/go-license-api/internal/security"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -34,6 +35,7 @@ type Dispatcher struct {
 type EventPayload struct {
 	ID         string `json:"id"`
 	Event      string `json:"event"`
+	Version    string `json:"version"` // payload schema version
 	TenantID   string `json:"tenant_id"`
 	OccurredAt string `json:"occurred_at"`
 	Data       any    `json:"data"`
@@ -49,7 +51,7 @@ func NewDispatcher(db *pgxpool.Pool, encKey []byte) *Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Dispatcher{
 		db:     db,
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: crypto.NewRestrictedHTTPClient(10 * time.Second),
 		events: make(chan dispatchJob, 500),
 		encKey: encKey,
 		ctx:    ctx,
@@ -111,6 +113,7 @@ func (d *Dispatcher) Dispatch(_ context.Context, event, tenantID string, data an
 	payload := &EventPayload{
 		ID:         uuid.New().String(),
 		Event:      event,
+		Version:    "v1",
 		TenantID:   tenantID,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339),
 		Data:       data,
@@ -140,6 +143,17 @@ func (d *Dispatcher) deliver(job dispatchJob) {
 	if err != nil {
 		return
 	}
+	// Enforce max payload size (defense-in-depth, prevents memory pressure)
+	const maxPayloadBytes = 256 * 1024 // 256KB
+	if len(body) > maxPayloadBytes {
+		fmt.Printf("webhook %s blocked: payload too large (%d bytes)\n", job.webhook.ID, len(body))
+		return
+	}
+	// Enforce https at dispatch time and guard against DNS rebinding by relying on restricted transport.
+	if u, perr := url.Parse(job.webhook.URL); perr != nil || u.Scheme != "https" {
+		fmt.Printf("webhook %s blocked: invalid or non-https URL\n", job.webhook.ID)
+		return
+	}
 	req, err := http.NewRequestWithContext(d.ctx, http.MethodPost, job.webhook.URL, bytes.NewReader(body))
 	if err != nil {
 		return
@@ -148,6 +162,13 @@ func (d *Dispatcher) deliver(job dispatchJob) {
 	req.Header.Set("User-Agent", "GoLicenseAPI-Webhooks/1.0")
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	req.Header.Set("X-License-Timestamp", ts)
+	req.Header.Set("X-Webhook-Version", "v1")
+	req.Header.Set("X-Webhook-Id", job.payload.ID)
+	req.Header.Set("X-Webhook-Attempt", strconv.Itoa(job.attempt))
+
+	// Optional content digest for tamper detection
+	sum := sha256.Sum256(body)
+	req.Header.Set("X-Body-SHA256", hex.EncodeToString(sum[:]))
 
 	secret, err := crypto.DecryptAES(d.encKey, job.webhook.SecretEnc)
 	if err != nil {
@@ -158,7 +179,9 @@ func (d *Dispatcher) deliver(job dispatchJob) {
 	buf = append(buf, ts...)
 	buf = append(buf, '.')
 	buf = append(buf, body...)
-	req.Header.Set("X-License-Signature", sign(buf, secret))
+	sig := sign(buf, secret)
+	// Include signature version for future-proofing
+	req.Header.Set("X-License-Signature", "v1="+sig)
 
 	resp, err := d.client.Do(req)
 	if err == nil {
@@ -170,7 +193,15 @@ func (d *Dispatcher) deliver(job dispatchJob) {
 	fmt.Printf("webhook delivery failed: id=%s attempt=%d err=%v\n", job.webhook.ID, job.attempt, err)
 
 	if job.attempt < 5 {
-		backoff := time.Duration(1<<job.attempt) * time.Second
+		// Explicit retry schedule: 1s → 5s → 25s → 2m → 10m
+		schedule := []time.Duration{
+			1 * time.Second,
+			5 * time.Second,
+			25 * time.Second,
+			2 * time.Minute,
+			10 * time.Minute,
+		}
+		backoff := schedule[job.attempt-1]
 		time.AfterFunc(backoff, func() {
 			job.attempt++
 			select {

@@ -994,6 +994,18 @@ Tenants register webhook endpoints. The service dispatches signed HTTP POST payl
 }
 ```
 
+### Delivery Security Constraints
+
+To prevent SSRF and related attacks, webhook delivery is locked down:
+
+- HTTPS-only: non-HTTPS URLs are rejected at registration and dispatch
+- Private/loopback/link-local blocked: `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, IPv6 loopback/ULA
+- DNS rebinding protection: destination IP is re-resolved at dial time and re-checked
+- Redirects disabled: 3xx responses are not automatically followed
+- Timeouts: 10s client timeout; connection/TLS timeouts are shorter
+
+If a URL violates these rules, registration returns `400 invalid_webhook_url` and dispatches are skipped with a logged notice.
+
 ### Payload
 
 ```json
@@ -1011,6 +1023,18 @@ Tenants register webhook endpoints. The service dispatches signed HTTP POST payl
 ```
 
 The payload is signed using HMAC-SHA256 with the registered secret. The signature is delivered in the `X-License-Signature` header. Recipients must verify this header before processing.
+
+#### Delivery headers and limits
+
+- `X-Webhook-Version: v1`
+- `X-Webhook-Id: <event-id>`
+- `X-Webhook-Attempt: <1..5>`
+- `X-Body-SHA256: <hex>`
+- `X-License-Timestamp: <unix-seconds>`
+- `X-License-Signature: v1=<hex-hmac-sha256>`
+- Retries: 1s → 5s → 25s → 2m → 10m (non-2xx only)
+- Max payload size: 256KB (larger payloads are dropped and logged)
+- Ordering: not guaranteed; rely on `occurred_at` and idempotency on receiver
 
 ### Reliability
 
@@ -1415,6 +1439,7 @@ helm install go-license-api deployments/k8s/helm/
 | Tenant signing key rotation | Same dual-key window; retired public keys remain in JWKS until all issued payloads expire |
 | Private key exposure | Private keys never returned by any API. Only public keys exposed via `/.well-known/jwks.json` |
 | Webhook payload auth | HMAC-SHA256 signature header |
+| Webhook destination restrictions | HTTPS-only; private/loopback blocked; DNS-rebinding protection; redirects disabled; timeouts |
 | Audit log integrity | Append-only; no app-level DELETE permission |
 
 ---

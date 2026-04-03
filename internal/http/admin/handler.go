@@ -172,6 +172,10 @@ func (h *Handler) RegisterWebhook(c fiber.Ctx) error {
 	if req.URL == "" || len(req.Events) == 0 || req.Secret == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "url_events_secret_required"})
 	}
+	// SSRF guard: validate URL before persisting
+	if err := crypto.IsSafeWebhookURL(req.URL); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_webhook_url", "detail": err.Error()})
+	}
 	if len(h.base.WebhookEncKey) != 32 {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "webhook_encryption_key_invalid"})
 	}
