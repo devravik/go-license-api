@@ -2,47 +2,48 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/base64"
 	"log"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"crypto/ed25519"
+
 	"github.com/devravik/go-license-api/internal/app"
+	"github.com/devravik/go-license-api/internal/audit"
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http"
 	"github.com/devravik/go-license-api/internal/http/middleware"
-	"github.com/devravik/go-license-api/internal/setup"
-	"github.com/devravik/go-license-api/internal/audit"
 	iaudit "github.com/devravik/go-license-api/internal/infrastructure/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
-	icrypto "github.com/devravik/go-license-api/internal/security"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
 	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
+	icrypto "github.com/devravik/go-license-api/internal/security"
+	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/devravik/go-license-api/internal/webhook"
 	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
-	"crypto/ed25519"
 	"github.com/jackc/pgx/v5/pgxpool"
 	jsoniter "github.com/json-iterator/go"
 )
 
 // Server wires all runtime dependencies and exposes lifecycle hooks.
 type Server struct {
-	app          *fiber.App
-	cfg          *setup.Config
-	db           *pgxpool.Pool
-	pool         *worker.Pool
-	poolCtx      context.Context
-	poolCancel   context.CancelFunc
-	auditWriter  *idb.AuditWriter
-	auditQueue   chan *domain.AuditEntry
-	auditWorker  *iaudit.Worker
+	app         *fiber.App
+	cfg         *setup.Config
+	db          *pgxpool.Pool
+	pool        *worker.Pool
+	poolCtx     context.Context
+	poolCancel  context.CancelFunc
+	auditWriter *idb.AuditWriter
+	auditQueue  chan *domain.AuditEntry
+	auditWorker *iaudit.Worker
 }
 
 func New() (*Server, *setup.Config) {
@@ -70,6 +71,7 @@ func New() (*Server, *setup.Config) {
 
 	licenseRepo := idb.NewLicenseRepo(pool)
 	tenantRepo := idb.NewTenantRepo(pool)
+	productRepo := idb.NewProductRepo(pool)
 	activationRepo := idb.NewActivationRepo(pool)
 
 	fiberCfg := fiber.Config{
@@ -106,6 +108,7 @@ func New() (*Server, *setup.Config) {
 			})
 		},
 	}
+	// Prefork is configured at Listen time (cmd/server) based on REDIS_URL.
 
 	if strings.EqualFold(cfg.JSONEngine, "jsoniter") {
 		var json = jsoniter.ConfigFastest
@@ -140,38 +143,121 @@ func New() (*Server, *setup.Config) {
 
 	licenseStore := cache.NewLicenseStore(licenseL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLL2, cacheCfg.LicenseTTLActive, cacheCfg.LicenseTTLNegative)
 	tenantStore := cache.NewTenantStore(tenantL1, l2, cacheCfg.TenantTTL, cacheCfg.TenantTTLNegative)
+	// Optional product cache: construct with existing cache TTLS to avoid new config surface.
+	productL1, err := cache.NewL1Cache(cacheCfg.L1MaxEntries)
+	if err != nil {
+		log.Fatalf("init product l1: %v", err)
+	}
+	productStore := cache.NewProductStore(productL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLNegative)
 
 	// Cross-instance invalidation listeners (self-reconnecting).
 	if l2 != nil {
 		licenseStore.SubscribeInvalidation(context.Background())
 		tenantStore.SubscribeInvalidation(context.Background())
+		// Subscribe to tenant created/updated events to keep cache fresh across processes.
+		l2.Subscribe(context.Background(), "tenant:created", func(tenantID string) {
+			// Control-plane read allowed in background to populate cache
+			if t, err := tenantRepo.FindByID(context.Background(), tenantID); err == nil && t != nil {
+				tenantStore.Set(context.Background(), t.ID, t.APIKey, t)
+				if t.OldAPIKey != "" {
+					tenantStore.Set(context.Background(), t.ID, t.OldAPIKey, t)
+				}
+			}
+		})
+		l2.Subscribe(context.Background(), "tenant:updated", func(tenantID string) {
+			// Best-effort refresh: fetch and overwrite; if fetch fails, invalidate by tenant ID
+			if t, err := tenantRepo.FindByID(context.Background(), tenantID); err == nil && t != nil {
+				tenantStore.Set(context.Background(), t.ID, t.APIKey, t)
+				if t.OldAPIKey != "" {
+					tenantStore.Set(context.Background(), t.ID, t.OldAPIKey, t)
+				}
+			} else {
+				tenantStore.InvalidateByTenantID(context.Background(), tenantID)
+			}
+		})
+		// Subscribe to product events: upsert -> refresh; delete -> invalidate
+		l2.Subscribe(context.Background(), "product:upsert", func(payload string) {
+			// payload format: tenantID|code
+			parts := strings.SplitN(payload, "|", 2)
+			if len(parts) != 2 {
+				return
+			}
+			tenantID, code := parts[0], parts[1]
+			if p, err := productRepo.FindByCode(context.Background(), tenantID, code); err == nil && p != nil {
+				productStore.Set(context.Background(), tenantID, code, p)
+			}
+		})
+		l2.Subscribe(context.Background(), "product:delete", func(payload string) {
+			parts := strings.SplitN(payload, "|", 2)
+			if len(parts) != 2 {
+				return
+			}
+			tenantID, code := parts[0], parts[1]
+			productStore.Invalidate(context.Background(), tenantID, code)
+		})
 	}
 
 	// Bounded warm-up at startup (DB allowed here).
-	wctx, wcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	wctx, wcancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer wcancel()
 	if err := licenseStore.WarmUp(wctx, licenseRepo, cacheCfg.WarmUpLicenseLimit); err != nil {
 		log.Printf("event=startup component=cache_warmup target=license status=error err=%v", err)
+	} else {
+		log.Printf("event=startup component=cache_warmup target=license status=success limit=%d l1_len=%d", cacheCfg.WarmUpLicenseLimit, licenseL1.Len())
 	}
-	// Tenant warmup (bounded). Tenants currently lack an updated_at column; we warm up to limit from FindAll.
-	if cacheCfg.WarmUpTenantLimit > 0 {
-		tenants, err := tenantRepo.FindAll(wctx)
-		if err != nil {
-			log.Printf("event=startup component=cache_warmup target=tenant status=error err=%v", err)
-		} else {
-			n := cacheCfg.WarmUpTenantLimit
-			if n > len(tenants) {
-				n = len(tenants)
+	// Fetch tenants once for reuse across tenant and product warmups.
+	var allTenants []*domain.Tenant
+	var tenantsErr error
+	if cacheCfg.WarmUpTenantLimit > 0 || cacheCfg.WarmUpProductLimit > 0 {
+		allTenants, tenantsErr = tenantRepo.FindAll(wctx)
+		if tenantsErr != nil {
+			log.Printf("event=startup component=cache_warmup target=tenant_fetch status=error err=%v", tenantsErr)
+		}
+	}
+	// Tenant warmup (bounded). Tenants currently lack an updated_at column; we warm up to limit from cached list.
+	if cacheCfg.WarmUpTenantLimit > 0 && tenantsErr == nil {
+		warmed := 0
+		for _, t := range allTenants {
+			if warmed >= cacheCfg.WarmUpTenantLimit {
+				break
 			}
-			for i := 0; i < n; i++ {
-				t := tenants[i]
-				tenantStore.Set(wctx, t.ID, t.APIKey, t)
-				if t.OldAPIKey != "" {
-					tenantStore.Set(wctx, t.ID, t.OldAPIKey, t)
+			// Only warm up active, non-suspended tenants.
+			if t.IsSuspended() {
+				continue
+			}
+			tenantStore.Set(wctx, t.ID, t.APIKey, t)
+			if t.OldAPIKey != "" {
+				tenantStore.Set(wctx, t.ID, t.OldAPIKey, t)
+			}
+			warmed++
+		}
+		log.Printf("event=startup component=cache_warmup target=tenant status=success tenants=%d l1_len=%d", warmed, tenantL1.Len())
+	}
+	// Product warmup (bounded): prioritize recently updated per tenant until cap is reached.
+	if cacheCfg.WarmUpProductLimit > 0 && tenantsErr == nil {
+		after := time.Now().Add(-30 * 24 * time.Hour) // last 30 days heuristic
+		warmed := 0
+		for _, t := range allTenants {
+			if warmed >= cacheCfg.WarmUpProductLimit {
+				break
+			}
+			plist, perr := productRepo.ListUpdatedAfter(wctx, t.ID, after)
+			if perr != nil {
+				continue
+			}
+			for _, p := range plist {
+				// Only warm up active products.
+				if !p.IsActive {
+					continue
+				}
+				productStore.Set(wctx, t.ID, p.Code, p)
+				warmed++
+				if warmed >= cacheCfg.WarmUpProductLimit {
+					break
 				}
 			}
-			log.Printf("event=startup component=cache_warmup target=tenant status=success tenants=%d", n)
 		}
+		log.Printf("event=startup component=cache_warmup target=product status=success products=%d", warmed)
 	}
 
 	rateLimiter := middleware.NewRateLimiter()
@@ -182,10 +268,11 @@ func New() (*Server, *setup.Config) {
 	_ = awCancel // retained for potential future use; worker stops via ctx or closed queue
 	auditWorker.Start(awCtx)
 
-	valSvc := app.NewValidationService(tenantStore, licenseStore, auditCh, cfg.MinLicenseKeyLen)
+	valSvc := app.NewValidationService(tenantStore, licenseStore, licenseRepo, licenseStore, auditCh, cfg.MinLicenseKeyLen)
 	activationLock := ilock.NewActivationLock()
-	activationSvc := app.NewActivationService(licenseStore, activationRepo, auditWriter, activationLock)
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rateLimiter, auditWriter)
+	activationSvc := app.NewActivationService(licenseStore, licenseRepo, licenseStore, activationRepo, auditWriter, activationLock)
+
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, licenseStore, tenantStore, productStore, rateLimiter, auditWriter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
 	poolCtx, poolCancel := context.WithCancel(context.Background())
 	poolSvc.Start(poolCtx)

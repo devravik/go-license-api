@@ -22,6 +22,10 @@ type redisTenant struct {
 	ExpiresAt time.Time     `json:"expires_at"`
 }
 
+type redisProduct struct {
+	Product   domain.Product `json:"product"`
+	ExpiresAt time.Time      `json:"expires_at"`
+}
 type redisNegative struct {
 	Negative  bool      `json:"negative"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -115,7 +119,15 @@ func (c *L2Cache) Get(ctx context.Context, key string) (*CacheEntry, bool) {
 	// 3) Decode tenant payload
 	var tp redisTenant
 	if err := json.Unmarshal(data, &tp); err != nil {
+		// 4) Try product payload
+		var pp redisProduct
+		if err := json.Unmarshal(data, &pp); err != nil {
+			return nil, false
+		}
+		if time.Now().After(pp.ExpiresAt) {
 		return nil, false
+		}
+		return &CacheEntry{Value: &pp.Product, ExpiresAt: pp.ExpiresAt}, true
 	}
 	if time.Now().After(tp.ExpiresAt) {
 		return nil, false
@@ -161,6 +173,21 @@ func (c *L2Cache) Set(ctx context.Context, key string, value *CacheEntry, ttl ti
 
 	t, ok := value.Value.(*domain.Tenant)
 	if !ok || t == nil {
+		// Try product
+		p, ok := value.Value.(*domain.Product)
+		if !ok || p == nil {
+			return
+		}
+		pp := redisProduct{Product: *p, ExpiresAt: value.ExpiresAt}
+		data, err := json.Marshal(&pp)
+		if err != nil {
+			return
+		}
+		if err := c.client.Set(ctx, key, data, ttl).Err(); err != nil {
+			c.recordFailure()
+			return
+		}
+		c.recordSuccess()
 		return
 	}
 

@@ -101,6 +101,7 @@ func SetupRoutesV2(
 	licenseGroup.Post("/validate", licenseHandler.Validate)
 	licenseGroup.Post("/activate", licenseHandler.Activate)
 	licenseGroup.Post("/deactivate", licenseHandler.Deactivate)
+	licenseGroup.Post("/usage", licenseHandler.Usage)
 
 	// Signed license issuance (Tenant Protected, BYPASSES rate limiter and worker pool) if deps are present.
 	if licenseStore != nil && signerRegistry != nil {

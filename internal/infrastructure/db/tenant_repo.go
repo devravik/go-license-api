@@ -22,11 +22,18 @@ func NewTenantRepo(db *pgxpool.Pool) domain.TenantRepository {
 func (r *tenantRepo) FindByID(ctx context.Context, id string) (*domain.Tenant, error) {
 	const q = `
 		SELECT
-			id, api_key, old_api_key, old_key_expires_at,
+			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
 			rps, burst, status,
-			suspended_at, suspension_reason, ip_allowlist,
+			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
-			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
+			COALESCE(name, '') AS name,
+			COALESCE(slug, '') AS slug,
+			COALESCE(email, '') AS email,
+			COALESCE(company, '') AS company,
+			COALESCE(plan, '') AS plan,
+			COALESCE(max_licenses, 0) AS max_licenses,
+			COALESCE(metadata, '{}'::jsonb) AS metadata,
+			updated_at, deleted_at
 		FROM tenants
 		WHERE id = $1
 	`
@@ -38,11 +45,18 @@ func (r *tenantRepo) FindByAPIKey(ctx context.Context, apiKey string) (*domain.T
 	// Supports EC-08 key rotation by matching both current api_key and old_api_key.
 	const q = `
 		SELECT
-			id, api_key, old_api_key, old_key_expires_at,
+			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
 			rps, burst, status,
-			suspended_at, suspension_reason, ip_allowlist,
+			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
-			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
+			COALESCE(name, '') AS name,
+			COALESCE(slug, '') AS slug,
+			COALESCE(email, '') AS email,
+			COALESCE(company, '') AS company,
+			COALESCE(plan, '') AS plan,
+			COALESCE(max_licenses, 0) AS max_licenses,
+			COALESCE(metadata, '{}'::jsonb) AS metadata,
+			updated_at, deleted_at
 		FROM tenants
 		WHERE api_key = $1 OR old_api_key = $1
 		LIMIT 1
@@ -54,11 +68,18 @@ func (r *tenantRepo) FindByAPIKey(ctx context.Context, apiKey string) (*domain.T
 func (r *tenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
 	const q = `
 		SELECT
-			id, api_key, old_api_key, old_key_expires_at,
+			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
 			rps, burst, status,
-			suspended_at, suspension_reason, ip_allowlist,
+			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
-			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
+			COALESCE(name, '') AS name,
+			COALESCE(slug, '') AS slug,
+			COALESCE(email, '') AS email,
+			COALESCE(company, '') AS company,
+			COALESCE(plan, '') AS plan,
+			COALESCE(max_licenses, 0) AS max_licenses,
+			COALESCE(metadata, '{}'::jsonb) AS metadata,
+			updated_at, deleted_at
 		FROM tenants
 	`
 
@@ -176,11 +197,18 @@ func (r *tenantRepo) scanTenant(row pgx.Row) (*domain.Tenant, error) {
 func (r *tenantRepo) FindBySlug(ctx context.Context, slug string) (*domain.Tenant, error) {
 	const q = `
 		SELECT
-			id, api_key, old_api_key, old_key_expires_at,
+			id, api_key, COALESCE(old_api_key, '') AS old_api_key, old_key_expires_at,
 			rps, burst, status,
-			suspended_at, suspension_reason, ip_allowlist,
+			suspended_at, COALESCE(suspension_reason, '') AS suspension_reason, ip_allowlist,
 			created_at,
-			name, slug, email, company, plan, max_licenses, metadata, updated_at, deleted_at
+			COALESCE(name, '') AS name,
+			COALESCE(slug, '') AS slug,
+			COALESCE(email, '') AS email,
+			COALESCE(company, '') AS company,
+			COALESCE(plan, '') AS plan,
+			COALESCE(max_licenses, 0) AS max_licenses,
+			COALESCE(metadata, '{}'::jsonb) AS metadata,
+			updated_at, deleted_at
 		FROM tenants
 		WHERE slug = $1
 		LIMIT 1

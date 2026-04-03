@@ -9,6 +9,9 @@ import (
 	"github.com/devravik/go-license-api/internal/http/middleware"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
+	ievents "github.com/devravik/go-license-api/internal/infrastructure/events"
+	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
+	"github.com/devravik/go-license-api/internal/ports"
 	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -35,6 +38,11 @@ type systemFacade struct {
 	CacheConf *setup.CacheConfig
 }
 
+type bizFacade struct {
+	Validation app.ValidationService
+	Activation app.ActivationService
+}
+
 func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	appCfg := setup.Load()
 	cacheCfg := setup.LoadCacheConfig()
@@ -54,6 +62,7 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	licenseRepo := idb.NewLicenseRepo(pool)
 	tenantRepo := idb.NewTenantRepo(pool)
 	productRepo := idb.NewProductRepo(pool)
+	activationRepo := idb.NewActivationRepo(pool)
 
 	licenseL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
 	tenantL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
@@ -67,10 +76,27 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 
 	licenseStore := cache.NewLicenseStore(licenseL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLL2, cacheCfg.LicenseTTLActive, cacheCfg.LicenseTTLNegative)
 	tenantStore := cache.NewTenantStore(tenantL1, l2, cacheCfg.TenantTTL, cacheCfg.TenantTTLNegative)
+	productL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
+	productStore := cache.NewProductStore(productL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLNegative)
 
 	rl := middleware.NewRateLimiter()
 	auditor := idb.NewAuditWriter(pool)
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, licenseStore, tenantStore, rl, auditor)
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, licenseStore, tenantStore, productStore, rl, auditor)
+	valSvc := app.NewValidationService(tenantStore, licenseStore, licenseRepo, licenseStore, nil, appCfg.MinLicenseKeyLen)
+	actLock := ilock.NewActivationLock()
+	actSvc := app.NewActivationService(licenseStore, licenseRepo, licenseStore, activationRepo, auditor, actLock)
+
+	// Optional Event Publisher (Redis-backed)
+	var publisher ports.EventPublisher
+	if cacheCfg.RedisURL != "" {
+		if p, err := ievents.NewRedisEventPublisher(cacheCfg.RedisURL); err == nil {
+			publisher = p
+		} else {
+			publisher = ievents.NoopPublisher{}
+		}
+	} else {
+		publisher = ievents.NoopPublisher{}
+	}
 
 	return &deps{
 		Config: &appConfig{
@@ -94,7 +120,11 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 				Config:    appCfg,
 				CacheConf: cacheCfg,
 			},
+			Biz: &bizFacade{
+				Validation: valSvc,
+				Activation: actSvc,
+			},
+			Pub: publisher,
 		},
 	}, nil
 }
-

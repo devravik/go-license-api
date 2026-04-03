@@ -22,6 +22,10 @@ type AdminService interface {
 	RotateTenantAPIKey(ctx context.Context, tenantID string, gracePeriod time.Duration) (string, time.Time, error)
 	UpdateTenantLimits(ctx context.Context, tenantID string, rps, burst int) error
 	UpdateTenantIPAllowlist(ctx context.Context, tenantID string, cidrs []string) error
+	// Product control-plane methods
+	UpsertProduct(ctx context.Context, p *domain.Product) error
+	DeleteProduct(ctx context.Context, tenantID, productID string) error
+	SetProductActive(ctx context.Context, tenantID, productID string, active bool) error
 }
 
 type LicenseCache interface {
@@ -36,16 +40,27 @@ type TenantCache interface {
 }
 
 type adminService struct {
-	licenses domain.LicenseRepository
-	tenants  domain.TenantRepository
-	licCache LicenseCache
-	tenCache TenantCache
-	limiter  ports.RateLimiter
-	auditor  domain.AuditWriter
+	licenses  domain.LicenseRepository
+	tenants   domain.TenantRepository
+	products  domain.ProductRepository
+	licCache  LicenseCache
+	tenCache  TenantCache
+	prodCache ports.ProductStore
+	limiter   ports.RateLimiter
+	auditor   domain.AuditWriter
 }
 
-func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, licCache LicenseCache, tenCache TenantCache, limiter ports.RateLimiter, auditor domain.AuditWriter) AdminService {
-	return &adminService{licenses: licenses, tenants: tenants, licCache: licCache, tenCache: tenCache, limiter: limiter, auditor: auditor}
+func NewAdminService(licenses domain.LicenseRepository, tenants domain.TenantRepository, products domain.ProductRepository, licCache LicenseCache, tenCache TenantCache, prodCache ports.ProductStore, limiter ports.RateLimiter, auditor domain.AuditWriter) AdminService {
+	return &adminService{
+		licenses:  licenses,
+		tenants:   tenants,
+		products:  products,
+		licCache:  licCache,
+		tenCache:  tenCache,
+		prodCache: prodCache,
+		limiter:   limiter,
+		auditor:   auditor,
+	}
 }
 
 func generateAPIKey() (string, error) {
@@ -66,12 +81,20 @@ func (s *adminService) CreateTenant(ctx context.Context, rps, burst int) (*domai
 		return nil, "", fmt.Errorf("generate api key: %w", err)
 	}
 
+	// Pre-DB: generate a collision-resistant slug and basic name to avoid unique slug violations.
+	// We do not query DB to check uniqueness; we rely on UUID entropy.
+	genID := uuid.New().String()
+	slug := "t-" + genID
+	name := "Tenant " + genID[:8]
+
 	tenant := &domain.Tenant{
 		ID:     uuid.New().String(),
 		APIKey: apiKey,
 		RPS:    rps,
 		Burst:  burst,
 		Status: "active",
+		Name:   name,
+		Slug:   slug,
 	}
 	if err := s.tenants.Create(ctx, tenant); err != nil {
 		return nil, "", fmt.Errorf("create tenant: %w", err)
@@ -204,6 +227,78 @@ func (s *adminService) UpdateTenantIPAllowlist(ctx context.Context, tenantID str
 		TenantID:   tenantID,
 		Event:      domain.EventTenantIPAllowlistUpdated,
 		ResourceID: tenantID,
+		Outcome:    "success",
+	})
+	return nil
+}
+
+// UpsertProduct writes through to cache to ensure immediate runtime availability.
+func (s *adminService) UpsertProduct(ctx context.Context, p *domain.Product) error {
+	if p == nil || p.TenantID == "" || p.Code == "" {
+		return errors.New("invalid_product")
+	}
+	if err := s.products.Upsert(ctx, p); err != nil {
+		return fmt.Errorf("product upsert: %w", err)
+	}
+	if s.prodCache != nil {
+		s.prodCache.Set(ctx, p.TenantID, p.Code, p)
+	}
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   p.TenantID,
+		Event:      "product_upserted",
+		ResourceID: p.ID,
+		Outcome:    "success",
+	})
+	return nil
+}
+
+// DeleteProduct invalidates from cache; DB is source of truth for persistence.
+func (s *adminService) DeleteProduct(ctx context.Context, tenantID, productID string) error {
+	if tenantID == "" || productID == "" {
+		return errors.New("invalid_request")
+	}
+	// Need code for cache invalidation: fetch by ID (control plane can hit DB).
+	p, err := s.products.FindByID(ctx, tenantID, productID)
+	if err != nil {
+		return fmt.Errorf("product find: %w", err)
+	}
+	if err := s.products.Delete(ctx, tenantID, productID); err != nil {
+		return fmt.Errorf("product delete: %w", err)
+	}
+	if s.prodCache != nil {
+		s.prodCache.Invalidate(ctx, tenantID, p.Code)
+	}
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      "product_deleted",
+		ResourceID: productID,
+		Outcome:    "success",
+	})
+	return nil
+}
+
+// SetProductActive toggles active flag and updates cache entry.
+func (s *adminService) SetProductActive(ctx context.Context, tenantID, productID string, active bool) error {
+	if tenantID == "" || productID == "" {
+		return errors.New("invalid_request")
+	}
+	// fetch for code and current fields
+	p, err := s.products.FindByID(ctx, tenantID, productID)
+	if err != nil {
+		return fmt.Errorf("product find: %w", err)
+	}
+	if err := s.products.SetActive(ctx, tenantID, productID, active); err != nil {
+		return fmt.Errorf("product set_active: %w", err)
+	}
+	// reflect new flag and write-through
+	p.IsActive = active
+	if s.prodCache != nil {
+		s.prodCache.Set(ctx, tenantID, p.Code, p)
+	}
+	s.auditor.Write(ctx, &domain.AuditEntry{
+		TenantID:   tenantID,
+		Event:      "product_set_active",
+		ResourceID: productID,
 		Outcome:    "success",
 	})
 	return nil

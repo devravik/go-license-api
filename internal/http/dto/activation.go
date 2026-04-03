@@ -22,3 +22,14 @@ type DeactivateResponse struct {
 	Deactivated bool   `json:"deactivated"`
 	Error       string `json:"error,omitempty"`
 }
+
+// Usage tracking
+type UsageRequest struct {
+	Key   string `json:"key"`
+	Units int    `json:"units"`
+}
+
+type UsageResponse struct {
+	Recorded bool   `json:"recorded"`
+	Error    string `json:"error,omitempty"`
+}

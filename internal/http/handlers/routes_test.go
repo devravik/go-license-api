@@ -94,6 +94,14 @@ func (m *mockAdminService) UpdateTenantLimits(_ context.Context, tenantID string
 func (m *mockAdminService) UpdateTenantIPAllowlist(_ context.Context, tenantID string, cidrs []string) error {
 	return m.updateIPAllowlistErr
 }
+// Satisfy new product methods on AdminService interface for router tests.
+func (m *mockAdminService) UpsertProduct(_ context.Context, p *domain.Product) error { return nil }
+func (m *mockAdminService) DeleteProduct(_ context.Context, tenantID, productID string) error {
+	return nil
+}
+func (m *mockAdminService) SetProductActive(_ context.Context, tenantID, productID string, active bool) error {
+	return nil
+}
 
 func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminService) *fiber.App {
 	t.Helper()
@@ -122,9 +130,9 @@ func newTestAppWithConfig(t *testing.T, cfg *setup.Config, val *mockValidationSe
 		t.Fatalf("new l1 cache: %v", err)
 	}
 	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
-	tenantStore.Set(context.Background(), "t1", "tenant-key", &domain.Tenant{
-		ID:     "t1",
-		APIKey: "tenant-key",
+	tenantStore.Set(context.Background(), "tenant-0001", "0123456789abcdef", &domain.Tenant{
+		ID:     "tenant-0001",
+		APIKey: "0123456789abcdef",
 		RPS:    100,
 		Burst:  200,
 		Status: "active",
@@ -184,8 +192,8 @@ func TestValidateRoute_Success(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 
 	res, err := app.Test(req)
 	if err != nil {
@@ -194,7 +202,7 @@ func TestValidateRoute_Success(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	if val.lastTenantID != "t1" || val.lastAPIKey != "tenant-key" || val.lastKey != "abc-123" || val.lastProd != "pro" {
+	if val.lastTenantID != "tenant-0001" || val.lastAPIKey != "0123456789abcdef" || val.lastKey != "abc-123" || val.lastProd != "pro" {
 		t.Fatalf("validation service called with unexpected args: %+v", val)
 	}
 }
@@ -204,8 +212,8 @@ func TestValidateRoute_KeyRequired(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("validate request failed: %v", err)
@@ -226,8 +234,8 @@ func TestValidateRoute_ValidationErrorPayload(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 
 	res, err := app.Test(req)
 	if err != nil {
@@ -258,8 +266,8 @@ func TestValidateRoute_InternalValidationError500(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 
 	res, err := app.Test(req)
 	if err != nil {
@@ -276,8 +284,8 @@ func TestValidateRoute_InvalidJSON400(t *testing.T) {
 	// Malformed JSON => fiber Bind error => invalid_request_body.
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123",`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 
 	res, err := app.Test(req)
 	if err != nil {
@@ -325,7 +333,7 @@ func TestAdminMutations_Success(t *testing.T) {
 		status int
 	}{
 		{"POST", "/admin/tenants", `{"rps":100,"burst":200}`, 201},
-		{"POST", "/admin/licenses/revoke", `{"tenant_id":"t1","key":"k1"}`, 200},
+		{"POST", "/admin/licenses/revoke", `{"tenant_id":"tenant-0001","key":"k1"}`, 200},
 		{"POST", "/admin/tenants/t1/suspend", `{"reason":"fraud"}`, 200},
 		{"POST", "/admin/tenants/t1/reinstate", `{}`, 200},
 		{"POST", "/admin/tenants/t1/rotate-key", `{"grace_minutes":60}`, 200},
@@ -368,8 +376,8 @@ func TestValidateRoute_Timeout504(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("validate timeout request failed: %v", err)
@@ -402,9 +410,9 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 		t.Fatalf("new l1 cache: %v", err)
 	}
 	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
-	tenantStore.Set(context.Background(), "t1", "tenant-key", &domain.Tenant{
-		ID:     "t1",
-		APIKey: "tenant-key",
+	tenantStore.Set(context.Background(), "tenant-0001", "0123456789abcdef", &domain.Tenant{
+		ID:     "tenant-0001",
+		APIKey: "0123456789abcdef",
 		RPS:    100,
 		Burst:  200,
 		Status: "active",
@@ -413,8 +421,8 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 	pool.Start(context.Background())
 	// Fill the single-slot queue; with zero workers it remains full.
 	ok := pool.Enqueue(&worker.ValidateJob{
-		TenantID:   "t1",
-		APIKey:     "tenant-key",
+		TenantID:   "tenant-0001",
+		APIKey:     "0123456789abcdef",
 		LicenseKey: "abc-123",
 		Product:    "pro",
 		Ctx:        context.Background(),
@@ -427,8 +435,8 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("validate queue full request failed: %v", err)

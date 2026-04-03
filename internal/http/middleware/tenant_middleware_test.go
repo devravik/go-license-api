@@ -45,8 +45,8 @@ func TestTenantAuth_InvalidAPIKey(t *testing.T) {
 	})
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "bad")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "bad-bad-bad-bad") // length >= 16 but cache returns invalid
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -58,14 +58,14 @@ func TestTenantAuth_InvalidAPIKey(t *testing.T) {
 
 func TestTenantAuth_SuspendedTenant(t *testing.T) {
 	app := fiber.New()
-	cache := &mockTenantCache{tenant: &domain.Tenant{ID: "t1", APIKey: "k", Status: "suspended"}}
+	cache := &mockTenantCache{tenant: &domain.Tenant{ID: "tenant-0001", APIKey: "0123456789abcdef", Status: "suspended"}}
 	app.Post("/licenses/validate", middleware.TenantAuth("multi", nil, cache), func(c fiber.Ctx) error {
 		return c.SendStatus(200)
 	})
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -77,14 +77,14 @@ func TestTenantAuth_SuspendedTenant(t *testing.T) {
 
 func TestTenantAuth_ValidSetsContext(t *testing.T) {
 	app := fiber.New()
-	cache := &mockTenantCache{tenant: &domain.Tenant{ID: "t1", APIKey: "k", Status: "active"}}
+	cache := &mockTenantCache{tenant: &domain.Tenant{ID: "tenant-0001", APIKey: "0123456789abcdef", Status: "active"}}
 	app.Post("/licenses/validate",
 		middleware.TenantAuth("multi", nil, cache),
 		func(c fiber.Ctx) error {
-			if c.Locals("tenant_id") != "t1" {
+			if c.Locals("tenant_id") != "tenant-0001" {
 				return c.SendStatus(500)
 			}
-			if c.Locals("api_key") != "k" {
+			if c.Locals("api_key") != "0123456789abcdef" {
 				return c.SendStatus(500)
 			}
 			return c.SendStatus(200)
@@ -92,8 +92,8 @@ func TestTenantAuth_ValidSetsContext(t *testing.T) {
 	)
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)

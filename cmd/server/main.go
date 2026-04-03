@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/devravik/go-license-api/internal/server"
+	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -15,8 +16,10 @@ func main() {
 
 	// Start server in a separate goroutine
 	go func() {
+		cacheCfg := setup.LoadCacheConfig()
+		enablePrefork := cacheCfg.RedisURL != "" // Prefork only when L2 is available
 		if err := serverInst.Listen(":"+cfg.AppPort, fiber.ListenConfig{
-			EnablePrefork: cfg.AppEnv == "production",
+			EnablePrefork: enablePrefork,
 		}); err != nil {
 			// Listen returns after Shutdown — suppress error log here
 		}

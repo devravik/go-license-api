@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/ports"
 	"github.com/google/uuid"
 )
 
 type ActivationService interface {
 	Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, error)
 	Deactivate(ctx context.Context, tenantID, key, activationID string) error
-	RecordUsage(ctx context.Context, tenantID string, licenseID, units int) error
+	RecordUsage(ctx context.Context, tenantID, key string, units int) error
 }
 
 type ActivationLocker interface {
@@ -27,6 +28,8 @@ type ActivationLicenseStore interface {
 
 type activationService struct {
 	store       ActivationLicenseStore
+	repo        domain.LicenseRepository
+	cacheWriter ports.LicenseCacheWriter
 	activations domain.ActivationRepository
 	auditor     domain.AuditWriter
 	locker      ActivationLocker
@@ -34,12 +37,16 @@ type activationService struct {
 
 func NewActivationService(
 	store ActivationLicenseStore,
+	repo domain.LicenseRepository,
+	cacheWriter ports.LicenseCacheWriter,
 	activations domain.ActivationRepository,
 	auditor domain.AuditWriter,
 	locker ActivationLocker,
 ) ActivationService {
 	return &activationService{
 		store:       store,
+		repo:        repo,
+		cacheWriter: cacheWriter,
 		activations: activations,
 		auditor:     auditor,
 		locker:      locker,
@@ -47,7 +54,7 @@ func NewActivationService(
 }
 
 func (s *activationService) Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, error) {
-	license, err := s.store.Get(ctx, tenantID, key)
+	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -100,7 +107,7 @@ func (s *activationService) Activate(ctx context.Context, tenantID, key, machine
 }
 
 func (s *activationService) Deactivate(ctx context.Context, tenantID, key, activationID string) error {
-	license, err := s.store.Get(ctx, tenantID, key)
+	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
 		return err
 	}
@@ -125,6 +132,37 @@ func (s *activationService) Deactivate(ctx context.Context, tenantID, key, activ
 	return nil
 }
 
-func (s *activationService) RecordUsage(ctx context.Context, _ string, licenseID, units int) error {
-	return s.activations.RecordUsage(ctx, licenseID, units)
+func (s *activationService) RecordUsage(ctx context.Context, tenantID, key string, units int) error {
+	license, err := s.resolveLicense(ctx, tenantID, key)
+	if err != nil {
+		return err
+	}
+	if license.IsRevoked() {
+		return domain.ErrLicenseRevoked
+	}
+	if license.IsExpired() && !license.IsInGracePeriod() {
+		return domain.ErrLicenseExpired
+	}
+	return s.activations.RecordUsage(ctx, license.ID, units)
+}
+
+func (s *activationService) resolveLicense(ctx context.Context, tenantID, key string) (*domain.License, error) {
+	license, err := s.store.Get(ctx, tenantID, key)
+	if err == nil && license != nil {
+		return license, nil
+	}
+	if s.repo == nil {
+		return nil, err
+	}
+	dbLic, derr := s.repo.FindByKey(ctx, tenantID, key)
+	if derr != nil || dbLic == nil {
+		if derr != nil {
+			return nil, derr
+		}
+		return nil, domain.ErrLicenseNotFound
+	}
+	if s.cacheWriter != nil {
+		s.cacheWriter.Set(ctx, tenantID, key, dbLic)
+	}
+	return dbLic, nil
 }

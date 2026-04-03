@@ -29,7 +29,7 @@ func (r *licenseRepo) FindByKey(ctx context.Context, tenantID, key string) (*dom
 			seat_count, max_activations,
 			usage_limit, usage_used,
 			features, meta, created_at,
-			issued_at, revoked_at, revoked_reason,
+			issued_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason,
 			last_validated_at, version, deleted_at
 		FROM licenses
 		WHERE tenant_id = $1 AND key = $2
@@ -159,7 +159,7 @@ func (r *licenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, 
 			seat_count, max_activations,
 			usage_limit, usage_used,
 			features, meta, created_at,
-			issued_at, revoked_at, revoked_reason,
+			issued_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason,
 			last_validated_at, version, deleted_at
 		FROM licenses
 		WHERE tenant_id = $1
@@ -221,7 +221,7 @@ func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.Licens
 			seat_count, max_activations,
 			usage_limit, usage_used,
 			features, meta, created_at,
-			issued_at, revoked_at, revoked_reason,
+			issued_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason,
 			last_validated_at, version, deleted_at
 		FROM licenses
 		ORDER BY created_at DESC

@@ -8,6 +8,7 @@ import (
 
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/ports"
 )
 
 type mockTenantRepo struct {
@@ -176,7 +177,10 @@ func TestAdminService_CreateTenant_WritesCachesAndInvalidatesLimiter(t *testing.
 		}
 	}
 
-	svc := app.NewAdminService(licenseRepo, tenantRepo, licCache, tenCache, limiter, auditor)
+	// New signature requires product repo and product cache; tests can pass nils.
+	var prodRepo domain.ProductRepository
+	var prodCache ports.ProductStore
+	svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, licCache, tenCache, prodCache, limiter, auditor)
 	tenant, apiKey, err := svc.CreateTenant(ctx, 50, 100)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -227,7 +231,10 @@ func TestAdminService_RevokeLicense_UpdatesLicenseCacheAfterRevoke(t *testing.T)
 	limiter := &mockLimiter{}
 	auditor := &mockAuditor{}
 
-	svc := app.NewAdminService(repoLicense, tenantRepo, licCache, tenCache, limiter, auditor)
+	{
+		var prodRepo domain.ProductRepository
+		var prodCache ports.ProductStore
+		svc := app.NewAdminService(repoLicense, tenantRepo, prodRepo, licCache, tenCache, prodCache, limiter, auditor)
 	if err := svc.RevokeLicense(ctx, tenantID, key); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -239,6 +246,7 @@ func TestAdminService_RevokeLicense_UpdatesLicenseCacheAfterRevoke(t *testing.T)
 	}
 	if aud := auditor.writeCount; aud != 0 {
 		t.Fatalf("expected no audit writes on RevokeLicense, got %d", aud)
+		}
 	}
 }
 
@@ -289,9 +297,13 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 	limiter := &mockLimiter{}
 	auditor := &mockAuditor{}
 
-	svc := app.NewAdminService(licenseRepo, tenantRepo, licCache, tenCache, limiter, auditor)
+	{
+		var prodRepo domain.ProductRepository
+		var prodCache ports.ProductStore
+		svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, licCache, tenCache, prodCache, limiter, auditor)
 	if err := svc.SuspendTenant(ctx, tenantID, "fraud"); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
+		}
 	}
 
 	if !updateStatusCalled {

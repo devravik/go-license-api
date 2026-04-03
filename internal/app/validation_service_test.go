@@ -46,6 +46,8 @@ func TestValidationService_LicenseNotFound(t *testing.T) {
 		&testTenantStore{tenant: activeTenant()},
 		&testLicenseStore{byTenant: map[string]*domain.License{}},
 		nil,
+		nil,
+		nil,
 		8,
 	)
 
@@ -63,6 +65,8 @@ func TestValidationService_RevokedLicense(t *testing.T) {
 	svc := NewValidationService(
 		&testTenantStore{tenant: activeTenant()},
 		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
+		nil,
+		nil,
 		nil,
 		8,
 	)
@@ -89,6 +93,8 @@ func TestValidationService_ExpiredLicense(t *testing.T) {
 		&testTenantStore{tenant: activeTenant()},
 		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
 		nil,
+		nil,
+		nil,
 		8,
 	)
 
@@ -113,6 +119,8 @@ func TestValidationService_GracePeriodLicense(t *testing.T) {
 	svc := NewValidationService(
 		&testTenantStore{tenant: activeTenant()},
 		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
+		nil,
+		nil,
 		nil,
 		8,
 	)
@@ -143,6 +151,8 @@ func TestValidationService_ValidLicense(t *testing.T) {
 		&testTenantStore{tenant: activeTenant()},
 		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
 		nil,
+		nil,
+		nil,
 		8,
 	)
 
@@ -160,6 +170,8 @@ func TestValidationService_WrongProduct(t *testing.T) {
 	svc := NewValidationService(
 		&testTenantStore{tenant: activeTenant()},
 		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
+		nil,
+		nil,
 		nil,
 		8,
 	)
@@ -179,6 +191,8 @@ func TestValidationService_TenantIsolation(t *testing.T) {
 		&testLicenseStore{byTenant: map[string]*domain.License{
 			"t1": {TenantID: "t1", Status: "active", Product: "pro"},
 		}},
+		nil,
+		nil,
 		nil,
 		8,
 	)

@@ -42,6 +42,8 @@ func BenchmarkValidation(b *testing.B) {
 		&benchTenantStore{tenant: tenant},
 		&benchLicenseStore{license: license},
 		nil,
+		nil,
+		nil,
 		4,
 	)
 
@@ -53,4 +55,3 @@ func BenchmarkValidation(b *testing.B) {
 		_, _ = svc.Validate(ctx, "t1", "tenant-key", "LIC-1", "pro")
 	}
 }
-

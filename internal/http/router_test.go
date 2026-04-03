@@ -42,6 +42,15 @@ func (d *dummyAdmin) UpdateTenantIPAllowlist(ctx context.Context, tenantID strin
 	return nil
 }
 
+// Satisfy new product methods on AdminService.
+func (d *dummyAdmin) UpsertProduct(ctx context.Context, p *domain.Product) error { return nil }
+func (d *dummyAdmin) DeleteProduct(ctx context.Context, tenantID, productID string) error {
+	return nil
+}
+func (d *dummyAdmin) SetProductActive(ctx context.Context, tenantID, productID string, active bool) error {
+	return nil
+}
+
 func newRouterTestApp(t *testing.T) *fiber.App {
 	t.Helper()
 	cfg := &setup.Config{
@@ -64,8 +73,8 @@ func newRouterTestApp(t *testing.T) *fiber.App {
 	admin := &dummyAdmin{}
 	l1, _ := cache.NewL1Cache(1000)
 	tenantStore := cache.NewTenantStore(l1, nil, time.Hour, time.Minute)
-	tenantStore.Set(context.Background(), "t1", "tenant-key", &domain.Tenant{
-		ID: "t1", APIKey: "tenant-key", RPS: 100, Burst: 200, Status: "active",
+	tenantStore.Set(context.Background(), "tenant-0001", "0123456789abcdef", &domain.Tenant{
+		ID: "tenant-0001", APIKey: "0123456789abcdef", RPS: 100, Burst: 200, Status: "active",
 	})
 	pool := worker.NewPool(1, 8, val, cfg.WorkerTimeout)
 	pool.Start(context.Background())
@@ -78,8 +87,8 @@ func TestRouter_LicenseValidateExists(t *testing.T) {
 	app := newRouterTestApp(t)
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"k","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", "t1")
-	req.Header.Set("X-API-Key", "tenant-key")
+	req.Header.Set("X-Tenant-ID", "tenant-0001")
+	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)

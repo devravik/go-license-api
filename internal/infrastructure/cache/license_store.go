@@ -134,6 +134,10 @@ func (s *LicenseStore) WarmUp(ctx context.Context, repo domain.LicenseRepository
 	}
 	for i := range licenses {
 		lic := licenses[i]
+		// Only warm up active, non-deleted licenses.
+		if lic.Status != "active" || lic.DeletedAt != nil {
+			continue
+		}
 		ck := cacheKey(lic.TenantID, lic.Key)
 		if _, ok := s.l1.Get(ctx, ck); ok {
 			continue // don't overwrite hot entries unnecessarily

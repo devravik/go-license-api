@@ -42,6 +42,14 @@ func (m *mockAdminService) UpdateTenantLimits(_ context.Context, tenantID string
 func (m *mockAdminService) UpdateTenantIPAllowlist(_ context.Context, tenantID string, cidrs []string) error {
 	return nil
 }
+// Satisfy new product methods on AdminService.
+func (m *mockAdminService) UpsertProduct(_ context.Context, p *domain.Product) error { return nil }
+func (m *mockAdminService) DeleteProduct(_ context.Context, tenantID, productID string) error {
+	return nil
+}
+func (m *mockAdminService) SetProductActive(_ context.Context, tenantID, productID string, active bool) error {
+	return nil
+}
 
 func newAdminTestApp(t *testing.T, adminSvc app.AdminService) *fiber.App {
 	t.Helper()

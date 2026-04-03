@@ -41,23 +41,23 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		AppName:            getEnv("APP_NAME", "Go License API"),
+		AppName: getEnv("APP_NAME", "Go License API"),
 		// Prefer conventional PORT, fall back to legacy APP_PORT
-		AppPort:            getEnv("PORT", getEnv("APP_PORT", "3000")),
-		AdminKey:           getEnv("ADMIN_API_KEY", ""),
-		AppMode:            getEnv("APP_MODE", "single"),
+		AppPort:  getEnv("PORT", getEnv("APP_PORT", "3000")),
+		AdminKey: getEnv("ADMIN_API_KEY", ""),
+		AppMode:  getEnv("APP_MODE", "single"),
 		// Use standard "development" instead of "develop"
 		AppEnv:             getEnv("APP_ENV", "development"),
 		JSONEngine:         getEnv("JSON_ENGINE", "std"),
 		SigningKeyPath:     getEnv("SIGNING_KEY_PATH", ""),
 		WorkerCount:        getEnvInt("WORKER_COUNT", 8),
-		WorkerQueueSize:    getEnvInt("WORKER_QUEUE_SIZE", 500),
+		WorkerQueueSize:    getEnvInt("WORKER_QUEUE_SIZE", 5000),
 		WorkerTimeout:      getEnvDuration("WORKER_TIMEOUT", 1500*time.Millisecond),
 		ValidationTimeout:  getEnvDuration("VALIDATION_TIMEOUT", 2*time.Second),
 		ClientTimeout:      getEnvDuration("CLIENT_TIMEOUT", 3*time.Second),
 		MinLicenseKeyLen:   getEnvInt("MIN_LICENSE_KEY_LEN", 8),
 		AuditWorkerCount:   getEnvInt("AUDIT_WORKER_COUNT", 2),
-		AuditQueueSize:     getEnvInt("AUDIT_QUEUE_SIZE", getEnvInt("WORKER_COUNT", 8)*100),
+		AuditQueueSize:     getEnvInt("AUDIT_QUEUE_SIZE", getEnvInt("WORKER_COUNT", 8)*1000),
 		AuditRetryCount:    getEnvInt("AUDIT_RETRY_COUNT", 1),
 		AuditRetryDelay:    getEnvDuration("AUDIT_RETRY_DELAY", 50*time.Millisecond),
 		AdminAllowedCIDRs:  getEnvCSV("ADMIN_ALLOWED_CIDRS"),
