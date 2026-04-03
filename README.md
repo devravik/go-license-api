@@ -2,7 +2,7 @@
 
 High-performance, self-hosted license validation service built in Go.
 
-Run it alongside your product. Your app calls it to validate licenses. Everything else—multi-tenancy, seat tracking, offline licenses, key rotation, webhooks, and audit logging—is handled for you.
+Run it alongside your product. Your app calls it to validate licenses. Everything else-multi-tenancy, seat tracking, offline licenses, key rotation, webhooks, and audit logging-is handled for you.
 
 ---
 
@@ -166,8 +166,8 @@ helm install go-license-api deployments/k8s/helm/
 
 **Health endpoints**
 
-* `GET /healthz` — liveness
-* `GET /readyz` — readiness
+* `GET /healthz` - liveness
+* `GET /readyz` - readiness
 
 ---
 
@@ -221,4 +221,4 @@ docs/
 
 ## License
 
-MIT — see LICENSE
+MIT - see LICENSE
