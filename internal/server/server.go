@@ -51,6 +51,7 @@ func New() (*Server, *setup.Config) {
 	cfg := setup.Load()
 	logCfg := setup.LoadLoggingConfig()
 	cacheCfg := setup.LoadCacheConfig()
+	limiterCfg := setup.LoadLimiterConfig()
 
 	ready := atomic.Bool{}
 	ready.Store(false)
@@ -287,6 +288,7 @@ func New() (*Server, *setup.Config) {
 	}
 
 	rateLimiter := middleware.NewRateLimiter()
+	failLimiter := middleware.NewAdaptiveFailLimiter(limiterCfg, cacheCfg.RedisURL)
 	auditWriter := idb.NewAuditWriter(pool)
 	auditCh := make(chan *domain.AuditEntry, cfg.AuditQueueSize)
 	auditWorker := iaudit.NewWorker(auditWriter, auditCh, cfg.AuditWorkerCount, cfg.AuditRetryCount, cfg.AuditRetryDelay)
@@ -357,7 +359,7 @@ func New() (*Server, *setup.Config) {
 	webhookRepo := idb.NewWebhookRepo(pool)
 
 	// Setup routes with injected config and services (extended)
-	http.SetupRoutesV3(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo,
+	http.SetupRoutesV3(appInstance, cfg, valSvc, activationSvc, adminSvc, poolSvc, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo, failLimiter,
 		func() bool { return ready.Load() },
 		func() int {
 			if poolSvc != nil {

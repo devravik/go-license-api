@@ -79,7 +79,7 @@ func newRouterTestApp(t *testing.T) *fiber.App {
 	pool := worker.NewPool(1, 8, val, cfg.WorkerTimeout)
 	pool.Start(context.Background())
 	rl := middleware.NewRateLimiter()
-	httpapi.SetupRoutesV2(app, cfg, val, nil, admin, pool, tenantStore, rl, nil, nil, audit.NewQueryService(nil), nil, nil)
+	httpapi.SetupRoutesV2(app, cfg, val, nil, admin, pool, tenantStore, rl, nil, nil, audit.NewQueryService(nil), nil, nil, nil)
 	return app
 }
 

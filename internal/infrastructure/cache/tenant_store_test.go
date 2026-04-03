@@ -105,3 +105,78 @@ func TestTenantStore_WriteThroughOverwrites(t *testing.T) {
 	}
 }
 
+func TestTenantStore_OldKeyWithinGraceAccepted(t *testing.T) {
+	ctx := context.Background()
+	l1, err := NewL1Cache(10)
+	if err != nil {
+		t.Fatalf("new l1 cache: %v", err)
+	}
+
+	store := &TenantStore{
+		l1:          l1,
+		l2:          nil,
+		ttl:         1 * time.Hour,
+		ttlNegative: 15 * time.Minute,
+	}
+
+	tenantID := "t1"
+	currentKey := "tenant-key-current"
+	oldKey := "tenant-key-old"
+	expiresAt := time.Now().Add(30 * time.Minute)
+	tenant := &domain.Tenant{
+		ID:              tenantID,
+		APIKey:          currentKey,
+		OldAPIKey:       oldKey,
+		OldKeyExpiresAt: &expiresAt,
+		Status:          "active",
+	}
+
+	store.Set(ctx, tenantID, oldKey, tenant)
+	got, err := store.Get(ctx, tenantID, oldKey)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if got != tenant {
+		t.Fatalf("expected tenant for old key within grace window")
+	}
+}
+
+func TestTenantStore_OldKeyExpiredRejectedAndInvalidated(t *testing.T) {
+	ctx := context.Background()
+	l1, err := NewL1Cache(10)
+	if err != nil {
+		t.Fatalf("new l1 cache: %v", err)
+	}
+
+	store := &TenantStore{
+		l1:          l1,
+		l2:          nil,
+		ttl:         1 * time.Hour,
+		ttlNegative: 15 * time.Minute,
+	}
+
+	tenantID := "t1"
+	currentKey := "tenant-key-current"
+	oldKey := "tenant-key-old"
+	expiredAt := time.Now().Add(-1 * time.Minute)
+	tenant := &domain.Tenant{
+		ID:              tenantID,
+		APIKey:          currentKey,
+		OldAPIKey:       oldKey,
+		OldKeyExpiresAt: &expiredAt,
+		Status:          "active",
+	}
+
+	store.Set(ctx, tenantID, oldKey, tenant)
+	got, err := store.Get(ctx, tenantID, oldKey)
+	if err == nil || err != domain.ErrInvalidTenant {
+		t.Fatalf("expected ErrInvalidTenant for expired old key, got tenant=%v err=%v", got, err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil tenant for expired old key")
+	}
+	if _, ok := l1.Get(ctx, cacheKey(tenantID, oldKey)); ok {
+		t.Fatalf("expected expired old key cache entry to be invalidated")
+	}
+}
+

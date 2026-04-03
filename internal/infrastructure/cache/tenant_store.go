@@ -41,6 +41,11 @@ func (s *TenantStore) Get(ctx context.Context, tenantID, apiKey string) (*domain
 		if !ok || t == nil {
 			return nil, domain.ErrInvalidTenant
 		}
+		if !t.AcceptsKey(apiKey) {
+			// Rotation grace expired (or mismatched key); do not trust stale cache entry.
+			s.Invalidate(ctx, tenantID, apiKey)
+			return nil, domain.ErrInvalidTenant
+		}
 		return t, nil
 	}
 
@@ -52,6 +57,11 @@ func (s *TenantStore) Get(ctx context.Context, tenantID, apiKey string) (*domain
 			}
 			t, ok := entry.Value.(*domain.Tenant)
 			if !ok || t == nil {
+				return nil, domain.ErrInvalidTenant
+			}
+			if !t.AcceptsKey(apiKey) {
+				s.Invalidate(ctx, tenantID, apiKey)
+				s.l1.Set(ctx, ck, &CacheEntry{Negative: true}, s.ttlNegative)
 				return nil, domain.ErrInvalidTenant
 			}
 			s.l1.Set(ctx, ck, &CacheEntry{Value: t}, s.ttl)

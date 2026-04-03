@@ -32,7 +32,7 @@ func SetupRoutes(
 	rateLimiter *middleware.RateLimiter,
 	// NOTE: do not add new parameters to this legacy function
 ) {
-	SetupRoutesV2(app, cfg, valSvc, activationSvc, adminSvc, pool, tenantStore, rateLimiter, nil, nil, nil, nil, nil)
+	SetupRoutesV2(app, cfg, valSvc, activationSvc, adminSvc, pool, tenantStore, rateLimiter, nil, nil, nil, nil, nil, nil)
 }
 
 // SetupRoutesV2 is the extended router that wires signed licenses and JWKS when dependencies are provided.
@@ -51,6 +51,7 @@ func SetupRoutesV2(
 	auditQuery *audit.QueryService,
 	webhookEncKey []byte,
 	webhookRepo handlers.WebhookWriter,
+	failLimiter *middleware.AdaptiveFailLimiter,
 ) {
 	idempCache, err := handlers.NewIdempotencyCache(10_000)
 	if err != nil {
@@ -96,6 +97,9 @@ func SetupRoutesV2(
 
 	// License Validation (Tenant Protected)
 	licenseGroup := app.Group("/licenses")
+	if failLimiter != nil {
+		licenseGroup.Use(failLimiter.Middleware())
+	}
 	licenseGroup.Use(middleware.TenantAuth(cfg.AppMode, nil, tenantStore))
 	licenseGroup.Use(rateLimiter.Middleware())
 	licenseGroup.Post("/validate", licenseHandler.Validate)
@@ -149,11 +153,12 @@ func SetupRoutesV3(
 	auditQuery *audit.QueryService,
 	webhookEncKey []byte,
 	webhookRepo handlers.WebhookWriter,
+	failLimiter *middleware.AdaptiveFailLimiter,
 	isReady func() bool,
 	queueDepth func() int,
 ) {
 	// Call V2 to construct handlers, then override providers.
-	SetupRoutesV2(app, cfg, valSvc, activationSvc, adminSvc, pool, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo)
+	SetupRoutesV2(app, cfg, valSvc, activationSvc, adminSvc, pool, tenantStore, rateLimiter, licenseStore, signerRegistry, auditQuery, webhookEncKey, webhookRepo, failLimiter)
 	// We need to rebind readiness on handler. Since V2 constructed a new handler internally and did not expose it,
 	// we instead re-register /readyz with the provided functions.
 	// Simpler: add a lightweight override endpoint.
