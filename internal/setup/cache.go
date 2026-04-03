@@ -24,7 +24,7 @@ type CacheConfig struct {
 
 func LoadCacheConfig() *CacheConfig {
 	return &CacheConfig{
-		L1MaxEntries: getEnvInt("CACHE_L1_MAX_ENTRIES", 1000),
+		L1MaxEntries: getEnvInt("CACHE_L1_MAX_ENTRIES", 10000),
 
 		LicenseTTLL1:       getEnvDuration("CACHE_LICENSE_TTL_L1", 5*time.Minute),
 		LicenseTTLL2:       getEnvDuration("CACHE_LICENSE_TTL_L2", 72*time.Hour),
@@ -36,8 +36,8 @@ func LoadCacheConfig() *CacheConfig {
 
 		RedisURL: getEnv("REDIS_URL", ""),
 
-		WarmUpLicenseLimit: getEnvInt("CACHE_WARMUP_LICENSE_LIMIT", 10000000),
-		WarmUpTenantLimit:  getEnvInt("CACHE_WARMUP_TENANT_LIMIT", 1000),
-		WarmUpProductLimit: getEnvInt("CACHE_WARMUP_PRODUCT_LIMIT", 1000000),
+		WarmUpLicenseLimit: getEnvInt("CACHE_WARMUP_LICENSE_LIMIT", 100000),
+		WarmUpTenantLimit:  getEnvInt("CACHE_WARMUP_TENANT_LIMIT", 100),
+		WarmUpProductLimit: getEnvInt("CACHE_WARMUP_PRODUCT_LIMIT", 10000),
 	}
 }

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,10 +16,19 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parse db config: %w", err)
 	}
 
-	// Tune pool size: enough for worker pool + admin handlers + health checks.
-	// If MaxConns isn't explicitly set, default to something reasonable for dev/prod.
+	// Keep pool bounded to prevent connection storms under high audit throughput.
+	// Favors stability for single-node medium deployments.
 	if cfg.MaxConns == 0 || cfg.MaxConns == 4 {
-		cfg.MaxConns = 20
+		cfg.MaxConns = 16
+	}
+	if cfg.MinConns < 2 {
+		cfg.MinConns = 2
+	}
+	if cfg.MaxConnLifetime <= 0 {
+		cfg.MaxConnLifetime = 30 * time.Minute
+	}
+	if cfg.MaxConnIdleTime <= 0 {
+		cfg.MaxConnIdleTime = 5 * time.Minute
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

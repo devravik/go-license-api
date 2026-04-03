@@ -264,15 +264,16 @@ func New() (*Server, *setup.Config) {
 	auditWriter := idb.NewAuditWriter(pool)
 	auditCh := make(chan *domain.AuditEntry, cfg.AuditQueueSize)
 	auditWorker := iaudit.NewWorker(auditWriter, auditCh, cfg.AuditWorkerCount, cfg.AuditRetryCount, cfg.AuditRetryDelay)
+	asyncAuditWriter := iaudit.NewAsyncWriter(auditCh)
 	awCtx, awCancel := context.WithCancel(context.Background())
 	_ = awCancel // retained for potential future use; worker stops via ctx or closed queue
 	auditWorker.Start(awCtx)
 
 	valSvc := app.NewValidationService(tenantStore, licenseStore, licenseRepo, licenseStore, auditCh, cfg.MinLicenseKeyLen)
 	activationLock := ilock.NewActivationLock()
-	activationSvc := app.NewActivationService(licenseStore, licenseRepo, licenseStore, activationRepo, auditWriter, activationLock)
+	activationSvc := app.NewActivationService(licenseStore, licenseRepo, licenseStore, activationRepo, asyncAuditWriter, activationLock)
 
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, licenseStore, tenantStore, productStore, rateLimiter, auditWriter)
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, licenseStore, tenantStore, productStore, rateLimiter, asyncAuditWriter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
 	poolCtx, poolCancel := context.WithCancel(context.Background())
 	poolSvc.Start(poolCtx)

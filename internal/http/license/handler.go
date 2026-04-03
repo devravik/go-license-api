@@ -1,12 +1,11 @@
 package license
 
 import (
-	"time"
+	"context"
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http/dto"
 	"github.com/devravik/go-license-api/internal/http/handlers"
-	"github.com/devravik/go-license-api/internal/worker"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -36,43 +35,32 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 
 	apiKey, _ := c.Locals("api_key").(string)
 	tenantID, _ := c.Locals("tenant_id").(string)
-	resultCh := make(chan worker.Result, 1)
-	job := &worker.ValidateJob{
-		TenantID:   tenantID,
-		APIKey:     apiKey,
-		LicenseKey: req.Key,
-		Product:    req.Product,
-		Ctx:        c.Context(),
-		ResultCh:   resultCh,
-	}
 
-	if !h.base.Pool.Enqueue(job) {
-		c.Set("Retry-After", "5")
-		return c.Status(fiber.StatusServiceUnavailable).JSON(dto.LicenseValidationResponse{
-			Valid: false,
-			Error: "service_unavailable",
-		})
-	}
+	// Call validation service directly — validation is pure in-memory (L1/L2 cache
+	// lookup + business rules), so routing through the worker pool only adds channel
+	// hops and goroutine scheduling overhead. Fiber/fasthttp already manages
+	// concurrency; the worker pool remains available for future I/O-bound tasks.
+	ctx, cancel := context.WithTimeout(c.Context(), h.base.Cfg.ValidationTimeout)
+	defer cancel()
 
-	select {
-	case result := <-resultCh:
-		if result.Err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{
+	result, err := h.base.ValidationService.Validate(ctx, tenantID, apiKey, req.Key, req.Product)
+	if err != nil {
+		if ctx.Err() != nil {
+			return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{
 				Valid: false,
-				Error: "internal_validation_error",
+				Error: "validation_timeout",
 			})
 		}
-		return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
-			Valid: result.Valid,
-			Meta:  result.Meta,
-			Error: result.Error,
-		})
-	case <-time.After(h.base.Cfg.ValidationTimeout):
-		return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{
+		return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{
 			Valid: false,
-			Error: "validation_timeout",
+			Error: "internal_validation_error",
 		})
 	}
+	return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+		Valid: result.Valid,
+		Meta:  result.Meta,
+		Error: result.Error,
+	})
 }
 
 func (h *Handler) Activate(c fiber.Ctx) error {

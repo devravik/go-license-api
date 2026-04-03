@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -188,8 +190,13 @@ func perform(ctx context.Context, cfg RunConfig, deps *DirectDeps, t TenantInfo,
 func performDirect(ctx context.Context, deps *DirectDeps, t TenantInfo, key string, op OpType, rng *rand.Rand) (bool, ErrorClass) {
 	switch op {
 	case OpValidate:
-		res, _ := deps.Validation.Validate(ctx, t.ID, t.APIKey, key, "")
+		res, err := deps.Validation.Validate(ctx, t.ID, t.APIKey, key, "")
 		if res == nil {
+			detail := "result=nil"
+			if err != nil {
+				detail += fmt.Sprintf(" err=%v", err)
+			}
+			logError(ctx, op, t.ID, key, detail)
 			return false, ErrInternal
 		}
 		if !res.Valid {
@@ -210,7 +217,11 @@ func performDirect(ctx context.Context, deps *DirectDeps, t TenantInfo, key stri
 	case OpActivate:
 		_, _, err := deps.Activation.Activate(ctx, t.ID, key, "machine-"+randomKey(rng), "")
 		if err != nil {
-			return false, classifyErr(err)
+			ec := classifyErr(err)
+			if ec == ErrInternal || ec == ErrTimeout {
+				logError(ctx, op, t.ID, key, fmt.Sprintf("err=%v", err))
+			}
+			return false, ec
 		}
 		return true, ErrNone
 	case OpUsage:
@@ -274,26 +285,36 @@ func performHTTP(ctx context.Context, baseURL string, t TenantInfo, key string, 
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		logError(ctx, op, t.ID, key, fmt.Sprintf("status=network err=%v", err))
 		return false, ErrTimeout
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return true, ErrNone
 	}
+	// Classify and log important errors (always, regardless of --logging flag).
+	var errClass ErrorClass
 	switch resp.StatusCode {
 	case 401, 403:
-		return false, ErrInvalid
+		errClass = ErrInvalid
 	case 404:
-		return false, ErrNotFound
+		errClass = ErrNotFound
 	case 402:
-		return false, ErrExpired
+		errClass = ErrExpired
 	case 429:
-		return false, ErrRateLimited
+		errClass = ErrRateLimited
 	case 408, 504:
-		return false, ErrTimeout
+		errClass = ErrTimeout
 	default:
-		return false, ErrInternal
+		errClass = ErrInternal
 	}
+	// Log internal, timeout, and network errors — these indicate server-side issues.
+	if errClass == ErrInternal || errClass == ErrTimeout {
+		body := readBodyLimited(resp.Body)
+		logError(ctx, op, t.ID, key,
+			fmt.Sprintf("status=%d endpoint=%s body=%s", resp.StatusCode, endpoint, body))
+	}
+	return false, errClass
 }
 
 // Minimal context plumbing to fetch RunConfig in performHTTP without changing many signatures.
@@ -301,6 +322,27 @@ type runConfigCtxKey struct{}
 
 func withRunConfig(ctx context.Context, cfg RunConfig) context.Context {
 	return context.WithValue(ctx, runConfigCtxKey{}, cfg)
+}
+
+// Error logger: always-on logging for internal/fatal/timeout errors regardless of --logging flag.
+type errLogCtxKey struct{}
+
+func withErrLog(ctx context.Context, l *log.Logger) context.Context {
+	return context.WithValue(ctx, errLogCtxKey{}, l)
+}
+
+func logError(ctx context.Context, op OpType, tenant, key, detail string) {
+	l, _ := ctx.Value(errLogCtxKey{}).(*log.Logger)
+	if l == nil {
+		return
+	}
+	l.Printf("op=%s tenant=%s key=%s %s", op, tenant, key, detail)
+}
+
+// readBodyLimited reads up to 512 bytes from r for error logging.
+func readBodyLimited(r io.Reader) string {
+	b, _ := io.ReadAll(io.LimitReader(r, 512))
+	return string(b)
 }
 
 // shellQuote wraps a string for safe shell logging; simplistic implementation.

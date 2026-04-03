@@ -133,6 +133,16 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 				arts = existing
 			}
 
+			// Always-on error logger for internal/fatal/timeout errors.
+			errFile, errFileErr := os.OpenFile("loadtest_errors.log",
+				os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if errFileErr != nil {
+				return jsonErr("open_error_log", errFileErr)
+			}
+			defer errFile.Close()
+			errLog := log.New(errFile, "", log.LstdFlags|log.Lmicroseconds)
+			ctx = withErrLog(ctx, errLog)
+
 			m := NewMetrics()
 			cfg := RunConfig{
 				Mode:          mode,
@@ -343,16 +353,24 @@ func jsonErr(msg string, err error) error {
 }
 
 func printSummary(s Summary) {
+	// Build failure_reasons from error classes, excluding ErrNone (success).
+	reasons := make(map[string]int64, len(s.Errors))
+	for class, count := range s.Errors {
+		if class == ErrNone {
+			continue
+		}
+		reasons[string(class)] = count
+	}
 	jsonOut(map[string]any{
-		"requests":   s.Requests,
-		"success":    s.Success,
-		"failures":   s.Failures,
-		"avg_ms":     s.Avg.Seconds() * 1000,
-		"p95_ms":     s.P95.Seconds() * 1000,
-		"p99_ms":     s.P99.Seconds() * 1000,
-		"throughput": s.Throughput,
-		"errors":     s.Errors,
-		"by_op":      s.ByOp,
+		"requests":        s.Requests,
+		"success":         s.Success,
+		"failures":        s.Failures,
+		"failure_reasons": reasons,
+		"avg_ms":          s.Avg.Seconds() * 1000,
+		"p95_ms":          s.P95.Seconds() * 1000,
+		"p99_ms":          s.P99.Seconds() * 1000,
+		"throughput":      s.Throughput,
+		"by_op":           s.ByOp,
 	})
 }
 

@@ -387,7 +387,9 @@ func TestValidateRoute_Timeout504(t *testing.T) {
 	}
 }
 
-func TestValidateRoute_QueueFull503(t *testing.T) {
+// TestValidateRoute_BypassesPool verifies that validation calls the service
+// directly and succeeds even when the worker pool queue is full.
+func TestValidateRoute_BypassesPool(t *testing.T) {
 	cfg := &setup.Config{
 		AppName:           "Go License API",
 		AppPort:           "8080",
@@ -402,7 +404,9 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 		ClientTimeout:     2 * time.Second,
 		AdminAllowedCIDRs: nil,
 	}
-	val := &mockValidationService{}
+	val := &mockValidationService{
+		result: &domain.ValidationResult{Valid: true, Meta: &domain.ValidationMeta{Plan: "pro"}},
+	}
 	admin := &mockAdminService{}
 	app := fiber.New()
 	l1, err := cache.NewL1Cache(1000)
@@ -433,15 +437,17 @@ func TestValidateRoute_QueueFull503(t *testing.T) {
 	}
 	httpapi.SetupRoutes(app, cfg, val, nil, admin, pool, tenantStore, middleware.NewRateLimiter())
 
+	// Validation should succeed (200) because the handler calls the service
+	// directly instead of routing through the saturated worker pool.
 	req := httptest.NewRequest("POST", "/licenses/validate", bytes.NewBufferString(`{"key":"abc-123","product":"pro"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", "tenant-0001")
 	req.Header.Set("X-API-Key", "0123456789abcdef")
 	res, err := app.Test(req)
 	if err != nil {
-		t.Fatalf("validate queue full request failed: %v", err)
+		t.Fatalf("validate request failed: %v", err)
 	}
-	if res.StatusCode != 503 {
-		t.Fatalf("expected 503, got %d", res.StatusCode)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 (pool bypassed), got %d", res.StatusCode)
 	}
 }
