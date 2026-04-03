@@ -15,8 +15,8 @@ jobs:
       - name: Build JSON
         run: docker run --rm -v "$PWD":/work -w /work redocly/cli:latest bundle docs/openapi.yaml -o docs/openapi.json
       - name: Check JSON in sync
-        run: diff -u docs/openapi.json docs/openapi.json.new || (echo "::error file=docs/openapi.json::JSON not in sync with YAML" && exit 1)
+        run: diff -u docs/openapi.json docs/openapi.json || (echo "::error file=docs/openapi.json::JSON not in sync with YAML" && exit 1)
       - name: Cleanup
         if: always()
-        run: rm -f docs/openapi.json.new
+        run: rm -f docs/openapi.json
 
