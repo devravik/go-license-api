@@ -77,7 +77,7 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	licenseStore := cache.NewLicenseStore(licenseL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLL2, cacheCfg.LicenseTTLActive, cacheCfg.LicenseTTLNegative)
 	tenantStore := cache.NewTenantStore(tenantL1, l2, cacheCfg.TenantTTL, cacheCfg.TenantTTLNegative)
 	productL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
-	productStore := cache.NewProductStore(productL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLNegative)
+	productStore := cache.NewProductStore(productL1, l2, cacheCfg.ProductTTL, cacheCfg.ProductTTLNegative)
 
 	rl := middleware.NewRateLimiter()
 	auditor := idb.NewAuditWriter(pool)

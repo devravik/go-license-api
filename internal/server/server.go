@@ -174,7 +174,7 @@ func New() (*Server, *setup.Config) {
 	if err != nil {
 		log.Fatalf("init product l1: %v", err)
 	}
-	productStore := cache.NewProductStore(productL1, l2, cacheCfg.LicenseTTLL1, cacheCfg.LicenseTTLNegative)
+	productStore := cache.NewProductStore(productL1, l2, cacheCfg.ProductTTL, cacheCfg.ProductTTLNegative)
 
 	// Cross-instance invalidation listeners (self-reconnecting).
 	if l2 != nil {

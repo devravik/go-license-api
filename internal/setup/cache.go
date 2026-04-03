@@ -12,8 +12,10 @@ type CacheConfig struct {
 	LicenseTTLActive   time.Duration
 	LicenseTTLNegative time.Duration
 
-	TenantTTL         time.Duration
-	TenantTTLNegative time.Duration
+	TenantTTL          time.Duration
+	TenantTTLNegative  time.Duration
+	ProductTTL         time.Duration
+	ProductTTLNegative time.Duration
 
 	RedisURL string
 
@@ -31,8 +33,12 @@ func LoadCacheConfig() *CacheConfig {
 		LicenseTTLActive:   getEnvDuration("CACHE_LICENSE_TTL_ACTIVE", 24*time.Hour),
 		LicenseTTLNegative: getEnvDuration("CACHE_LICENSE_TTL_NEGATIVE", 60*time.Second),
 
-		TenantTTL:         getEnvDuration("CACHE_TENANT_TTL", 10*time.Minute),
+		// Tenants/products are small control-plane datasets; default to non-expiring in-memory entries.
+		TenantTTL:         getEnvDuration("CACHE_TENANT_TTL", 0),
 		TenantTTLNegative: getEnvDuration("CACHE_TENANT_TTL_NEGATIVE", 60*time.Second),
+		ProductTTL:        getEnvDuration("CACHE_PRODUCT_TTL", 0),
+		ProductTTLNegative: getEnvDuration("CACHE_PRODUCT_TTL_NEGATIVE",
+			getEnvDuration("CACHE_LICENSE_TTL_NEGATIVE", 60*time.Second)),
 
 		RedisURL: getEnv("REDIS_URL", ""),
 

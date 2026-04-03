@@ -11,5 +11,8 @@ type CacheEntry struct {
 }
 
 func (e *CacheEntry) IsExpired(now time.Time) bool {
+	if e.ExpiresAt.IsZero() {
+		return false
+	}
 	return now.After(e.ExpiresAt)
 }

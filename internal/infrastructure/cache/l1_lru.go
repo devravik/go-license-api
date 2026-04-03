@@ -41,7 +41,12 @@ func (c *L1Cache) Get(_ context.Context, key string) (*CacheEntry, bool) {
 func (c *L1Cache) Set(_ context.Context, key string, value *CacheEntry, ttl time.Duration) {
 	// Copy to avoid mutating caller-owned pointers (safer if CacheEntry is reused/shared).
 	entry := *value
-	entry.ExpiresAt = time.Now().Add(ttl)
+	if ttl > 0 {
+		entry.ExpiresAt = time.Now().Add(ttl)
+	} else {
+		// Zero/negative TTL means non-expiring until explicit invalidation or LRU eviction.
+		entry.ExpiresAt = time.Time{}
+	}
 	c.lru.Add(key, &entry)
 }
 
