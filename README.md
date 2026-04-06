@@ -1,8 +1,10 @@
 # Go License API
 
-High-performance, self-hosted license validation service built in Go.
+High-performance, self-hosted license validation service built in Go. 
 
-Run it alongside your product. Your app calls it to validate licenses. Everything else-multi-tenancy, seat tracking, offline licenses, key rotation, webhooks, and audit logging-is handled for you.
+From simple plugin licensing to large-scale SaaS enforcement - one system.
+
+Run it alongside your product. Your app calls it to validate licenses. Everything else multi-tenancy, seat tracking, offline licenses, key rotation, webhooks, and audit logging-is handled for you.
 
 ![Go Version](https://img.shields.io/badge/go-1.21-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Status](https://img.shields.io/badge/status-production--ready-brightgreen)
 
@@ -10,11 +12,13 @@ Run it alongside your product. Your app calls it to validate licenses. Everythin
 
 ## Who is this for
 
-- SaaS products needing reliable license enforcement
+- SaaS products needing reliable license enforcement at scale
 - Desktop apps requiring offline activation/verification
-- Plugin/theme ecosystems (WordPress, IDEs, design tools)
-- API-first products with usage-based/burstable billing
-- Teams scaling beyond simple DB-based validation in the main app
+- Plugin/theme developers (WordPress, Shopify, IDE extensions)
+- Indie developers selling paid tools, scripts, or apps
+- Chrome extensions or Electron apps needing simple licensing
+- API-first products with usage-based or seat-based billing
+- Teams moving beyond basic DB-based license checks
 
 ---
 
@@ -23,8 +27,47 @@ Run it alongside your product. Your app calls it to validate licenses. Everythin
 - Validate licenses for desktop apps (offline + online modes)
 - Enforce subscription plans and feature tiers in SaaS
 - Limit seats or concurrent devices per license
-- Protect plugins/themes from piracy with signed offline licenses
+- Protect WordPress plugins/themes from piracy
+- Sell premium Chrome extensions with license keys
+- Add licensing to indie tools without building a full backend
 - Enable feature flags based on license tier or entitlements
+
+---
+
+## Simple vs Advanced usage
+
+**Simple (Indie / Plugin developers):**
+- Generate license keys
+- Call `/licenses/validate` from your app/plugin
+- Enable/disable features based on response
+
+**Advanced (SaaS / Platforms):**
+- Multi-tenant isolation
+- Seat-based licensing
+- Offline signed licenses
+- Webhooks, audit logs, rate limiting
+
+---
+
+## Extensibility
+
+- Add custom validation rules in the domain layer
+- Extend license metadata for product-specific logic
+- Integrate with billing systems via webhooks
+
+---
+
+## Why not build this yourself?
+
+A simple license system becomes complex quickly as you scale:
+
+- handling offline validation
+- preventing license sharing
+- scaling validation under load
+- managing revocation and expirations
+- securing APIs against abuse
+
+This service gives you all of that out of the box.
 
 ---
 
@@ -186,12 +229,21 @@ See details in `development/03_infrastructure_cache.md`.
 * Signed offline licenses (Ed25519)
 * Trial and grace periods
 * Not-before and explicit revocation IDs
-* Optional client/device binding via activations (prevents license sharing)
+* Optional client/device binding (enforced during validation to prevent license sharing)
 * Key rotation (zero downtime)
 * Webhooks (signed callbacks)
 * Audit logging (immutable, traceable)
 * IP allowlisting
 * Per-tenant rate limiting (token bucket)
+
+---
+
+## Offline vs Online validation
+
+- Online: your app calls `/licenses/validate`
+- Offline: signed license verified locally using Ed25519 (no network)
+
+Both follow the same license rules and metadata.
 
 ---
 
