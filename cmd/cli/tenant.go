@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -14,6 +19,7 @@ func newTenantCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(
+		newTenantBootstrapCmd(),
 		newTenantCreateCmd(),
 		newTenantUpdateCmd(),
 		newTenantDeleteCmd(),
@@ -26,6 +32,134 @@ func newTenantCmd() *cobra.Command {
 	)
 
 	return cmd
+}
+
+func newTenantBootstrapCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "bootstrap",
+		Short: "Interactively create first tenant and print raw API key",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reader := bufio.NewReader(os.Stdin)
+			ask := func(label, def string) (string, error) {
+				if def != "" {
+					fmt.Printf("%s [%s]: ", label, def)
+				} else {
+					fmt.Printf("%s: ", label)
+				}
+				v, err := reader.ReadString('\n')
+				if err != nil {
+					return "", err
+				}
+				v = strings.TrimSpace(v)
+				if v == "" {
+					return def, nil
+				}
+				return v, nil
+			}
+			parseInt := func(v string, def int) (int, error) {
+				v = strings.TrimSpace(v)
+				if v == "" {
+					return def, nil
+				}
+				n, err := strconv.Atoi(v)
+				if err != nil {
+					return 0, err
+				}
+				return n, nil
+			}
+
+			name, err := ask("Tenant name", "")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			slug, err := ask("Tenant slug", "")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			email, err := ask("Contact email", "")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			company, err := ask("Company", "")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			plan, err := ask("Plan", "starter")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			rpsRaw, err := ask("Rate limit RPS", "100")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			rps, err := parseInt(rpsRaw, 100)
+			if err != nil || rps <= 0 {
+				return jsonErr("invalid_rps", fmt.Errorf("rps must be a positive integer"))
+			}
+			burstRaw, err := ask("Rate limit burst", "200")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			burst, err := parseInt(burstRaw, 200)
+			if err != nil || burst <= 0 {
+				return jsonErr("invalid_burst", fmt.Errorf("burst must be a positive integer"))
+			}
+			maxLicRaw, err := ask("Max licenses", "1000")
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+			maxLicenses, err := parseInt(maxLicRaw, 1000)
+			if err != nil || maxLicenses < 0 {
+				return jsonErr("invalid_max_licenses", fmt.Errorf("max_licenses must be >= 0"))
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), appContainer.Deps.Config.Timeout)
+			defer cancel()
+			tenant, apiKey, err := appContainer.Deps.Services.Admin.Admin.CreateTenant(ctx, rps, burst)
+			if err != nil {
+				return jsonErr("tenant_bootstrap_failed", err)
+			}
+
+			// Best-effort profile update for explicit onboarding fields.
+			if u, ok := appContainer.Deps.Services.Admin.Admin.(interface {
+				UpdateTenantProfile(ctx context.Context, tenantID string, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error
+			}); ok {
+				if err := u.UpdateTenantProfile(ctx, tenant.ID, name, slug, email, company, plan, maxLicenses, nil); err != nil {
+					return jsonErr("tenant_profile_update_failed", err)
+				}
+				updated, gerr := appContainer.Deps.Services.Repo.Tenants.FindByID(ctx, tenant.ID)
+				if gerr == nil && updated != nil {
+					tenant = updated
+				}
+			}
+
+			// Human-friendly bootstrap output; keep api key prominent and explicit.
+			fmt.Println()
+			fmt.Println("==========================================")
+			fmt.Println(" Tenant bootstrap completed successfully")
+			fmt.Println("==========================================")
+			fmt.Println("Tenant:")
+			fmt.Printf("  %-13s %s\n", "ID:", tenant.ID)
+			fmt.Printf("  %-13s %s\n", "Name:", tenant.Name)
+			fmt.Printf("  %-13s %s\n", "Slug:", tenant.Slug)
+			fmt.Printf("  %-13s %s\n", "Email:", tenant.Email)
+			fmt.Printf("  %-13s %s\n", "Company:", tenant.Company)
+			fmt.Printf("  %-13s %s\n", "Plan:", tenant.Plan)
+			fmt.Printf("  %-13s %s\n", "Status:", tenant.Status)
+			fmt.Printf("  %-13s %d\n", "RPS:", tenant.RPS)
+			fmt.Printf("  %-13s %d\n", "Burst:", tenant.Burst)
+			fmt.Printf("  %-13s %d\n", "Max licenses:", tenant.MaxLicenses)
+			fmt.Println()
+			fmt.Println("Raw API key (shown once):")
+			fmt.Printf("  %s\n", apiKey)
+			fmt.Println()
+			fmt.Println("IMPORTANT:")
+			fmt.Println("  Save this raw API key now. Only its hash is stored in the database.")
+			fmt.Println("  Use it in requests as header: X-API-Key: <raw_api_key>")
+			return nil
+		},
+	}
+	return c
 }
 
 func newTenantCreateCmd() *cobra.Command {

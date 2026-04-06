@@ -164,6 +164,9 @@ func newLoadtestCmd() *cobra.Command {
 		refs.ProductUpsert = func(ctx context.Context, p *domain.Product) error {
 			return appContainer.Deps.Services.Repo.Products.Upsert(ctx, p)
 		}
+		refs.PlanUpsert = func(ctx context.Context, p *domain.Plan) error {
+			return appContainer.Deps.Services.Repo.Plans.Upsert(ctx, p)
+		}
 		refs.LicenseCreate = func(ctx context.Context, l *domain.License) error {
 			return appContainer.Deps.Services.Repo.Licenses.Create(ctx, l)
 		}

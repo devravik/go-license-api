@@ -22,6 +22,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 		// seed flags
 		tenants  int
 		products int
+		plans    int
 		licenses int
 		// run flags
 		workers       int
@@ -50,8 +51,8 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 		Short: "Seed tenants/products/licenses",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Flag validations (pre-DB)
-			if tenants <= 0 || products <= 0 || licenses <= 0 {
-				return jsonErr("invalid_flags", fmt.Errorf("tenants, products, licenses must be > 0"))
+			if tenants <= 0 || products <= 0 || plans <= 0 || licenses <= 0 {
+				return jsonErr("invalid_flags", fmt.Errorf("tenants, products, plans, licenses must be > 0"))
 			}
 			// Soft cap unless explicitly large runs are desired; adjust as needed.
 			if tenants > 10000 {
@@ -62,6 +63,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 			arts, err := Seed(ctx, SeedConfig{
 				Tenants:  tenants,
 				Products: products,
+				Plans:    plans,
 				Licenses: licenses,
 			}, app)
 			if err != nil {
@@ -82,6 +84,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 	}
 	seedCmd.Flags().IntVar(&tenants, "tenants", 10, "Number of tenants")
 	seedCmd.Flags().IntVar(&products, "products", 3, "Products per tenant")
+	seedCmd.Flags().IntVar(&plans, "plans", 3, "Plans per tenant")
 	seedCmd.Flags().IntVar(&licenses, "licenses", 1000, "Licenses per tenant")
 	cmd.AddCommand(seedCmd)
 
@@ -132,6 +135,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 				arts, err = Seed(ctx, SeedConfig{
 					Tenants:  tenants,
 					Products: max(1, products),
+					Plans:    max(1, plans),
 					Licenses: max(1, licenses),
 				}, app)
 				if err != nil {
@@ -200,6 +204,7 @@ func NewCmd(app *AppContainerRefs) *cobra.Command {
 	}
 	runCmd.Flags().IntVar(&tenants, "tenants", 100, "Tenants to seed (if needed)")
 	runCmd.Flags().IntVar(&products, "products", 5, "Products per tenant")
+	runCmd.Flags().IntVar(&plans, "plans", 5, "Plans per tenant")
 	runCmd.Flags().IntVar(&licenses, "licenses", 10000, "Licenses per tenant")
 	runCmd.Flags().IntVar(&workers, "workers", 200, "Concurrent workers")
 	runCmd.Flags().DurationVar(&duration, "duration", 60*time.Second, "Test duration")
@@ -314,6 +319,7 @@ type AppContainerRefs struct {
 	TenantCreate          func(ctx context.Context, rps, burst int) (*domain.Tenant, string, error)
 	ProductUpsert         func(ctx context.Context, p *domain.Product) error
 	LicenseCreate         func(ctx context.Context, l *domain.License) error
+	PlanUpsert            func(ctx context.Context, p *domain.Plan) error
 	WriteThrough          func(ctx context.Context, tenantID, key string, lic *domain.License)
 	// Optional event hooks
 	OnTenantCreated   func(ctx context.Context, tenantID string)
@@ -333,6 +339,9 @@ func (a *AppContainerRefs) UpsertProduct(ctx context.Context, p *domain.Product)
 }
 func (a *AppContainerRefs) CreateLicense(ctx context.Context, l *domain.License) error {
 	return a.LicenseCreate(ctx, l)
+}
+func (a *AppContainerRefs) UpsertPlan(ctx context.Context, p *domain.Plan) error {
+	return a.PlanUpsert(ctx, p)
 }
 func (a *AppContainerRefs) WriteThroughLicense(ctx context.Context, tenantID, key string, lic *domain.License) {
 	a.WriteThrough(ctx, tenantID, key, lic)

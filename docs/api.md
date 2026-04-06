@@ -88,6 +88,7 @@ Failure:
 ```json
 {
   "valid": false,
+  "meta": null,
   "error": {
     "code": "license_expired",
     "message": "License expired"
@@ -98,6 +99,36 @@ Failure:
 
 Possible error values: `license_not_found`, `license_expired`, `license_revoked`, `license_in_grace_period`, `tenant_suspended`, `ip_not_allowed`.
 
+`meta.type` is always present on successful validations (`plan` or `product`).
+
+`meta.product` can be `null` for licenses/plans without a linked product.
+
+Example:
+
+```json
+{
+  "valid": true,
+  "meta": {
+    "license_id": "lic_xxxxx",
+    "status": "active",
+    "type": "plan",
+    "plan_id": "plan_xxxxxxxx",
+    "plan": {
+      "id": "plan_xxxxxxxx",
+      "name": "Pro"
+    },
+    "product": null,
+    "product_id": null,
+    "features": ["sso", "audit-log"]
+  }
+}
+```
+
+`license_in_grace_period` semantics:
+- `valid = false`
+- `grace_period_ends_at != null`
+- client MAY allow limited access until grace period ends
+
 ---
 
 ### Activate a seat
@@ -106,7 +137,7 @@ Possible error values: `license_not_found`, `license_expired`, `license_revoked`
 
 ```json
 {
-  "key": "ABC-123",
+  "key": "LIC-ABC-123",
   "client_id": "sha256-of-hardware-fingerprint",
   "hostname": "workstation-42"
 }
@@ -185,7 +216,7 @@ Seat limit exceeded:
 
 ```json
 {
-  "key": "ABC-123",
+  "key": "LIC-ABC-123",
   "activation_id": "act_abc123"
 }
 ```
@@ -198,7 +229,7 @@ Seat limit exceeded:
 
 ```json
 {
-  "key": "ABC-123",
+  "key": "LIC-ABC-123",
   "units": 10
 }
 ```
@@ -209,29 +240,24 @@ Seat limit exceeded:
 
 `GET /licenses/{key}/signed`
 
-Returns a signed JSON payload containing the license data and an Ed25519 signature. The client can cache this locally and verify it offline using the public key from `/.well-known/jwks.json`.
+Public endpoint (no `X-API-Key` required).
+
+Returns a detached-signature JSON envelope. `payload` is a canonical JSON string containing the license claims; `signature` is an Ed25519 signature over the raw `payload` bytes. The client can cache this locally and verify it offline using the public key from `/.well-known/jwks.json`.
 
 ```json
 {
-  "license_id": "lic_xxx",
-  "license_key": "ABC-123",
-  "type": "plan",
-  "tenant_id": "ten_xxx",
-  "plan_id": "plan_xxx",
-  "product_id": "prod_xxx",
-  "status": "active",
-  "expires_at": "2026-12-31T00:00:00Z",
-  "seats_total": -1,
-  "seats_used": 2,
-  "features": ["sso", "audit-log", "beta-feature"],
-  "issued_at": "2024-01-01T00:00:00Z",
+  "payload": "{\"license_id\":\"lic_xxx\",\"license_key\":\"LIC-ABC-123\",\"type\":\"plan\",\"tenant_id\":\"ten_xxx\",\"plan_id\":\"plan_xxx\",\"product_id\":\"prod_xxx\",\"status\":\"active\",\"expires_at\":\"2026-12-31T00:00:00Z\",\"not_before\":\"2026-01-01T00:00:00Z\",\"issued_at\":\"2026-01-01T00:00:00Z\",\"seats_total\":-1,\"seats_used\":2,\"features\":[\"sso\",\"audit-log\",\"beta-feature\"],\"kid\":\"ten_xxx_key_01\",\"issuer\":\"ten_xxx\"}",
+  "signature": "<base64-encoded-ed25519-signature>",
   "kid": "ten_xxx_key_01",
-  "issuer": "ten_xxx",
-  "signature": "<base64-encoded-ed25519-signature>"
+  "issuer": "ten_xxx"
 }
 ```
 
-The `kid` field identifies which public key to use for verification. Look it up in the JWKS response.
+Verification flow:
+- select the public key by `kid` from JWKS
+- decode `signature` as base64
+- verify `ed25519(public_key, payload_bytes, signature)`
+- parse the `payload` JSON and enforce `not_before` / `expires_at`
 
 ---
 
@@ -249,6 +275,7 @@ Returns all active public keys — global and tenant-specific overrides — as a
       "issuer": "global",
       "kty": "OKP",
       "crv": "Ed25519",
+      "alg": "EdDSA",
       "x": "<base64url-encoded-public-key>"
     }
   ]

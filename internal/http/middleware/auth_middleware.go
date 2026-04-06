@@ -10,7 +10,7 @@ import (
 
 func AdminKeyGuard(adminKey string) fiber.Handler {
 	if strings.TrimSpace(adminKey) == "" {
-		panic("ADMIN_API_KEY must be set")
+		panic("ADMIN_API_KEY must be set (configure ADMIN_API_KEY in .env)")
 	}
 
 	return func(c fiber.Ctx) error {

@@ -25,6 +25,7 @@ type repoFacade struct {
 	Licenses domain.LicenseRepository
 	Tenants  domain.TenantRepository
 	Products domain.ProductRepository
+	Plans    domain.PlanRepository
 	DB       *pgxpool.Pool
 }
 
@@ -66,9 +67,6 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	productRepo := idb.NewProductRepo(pool)
 	planRepo := idb.NewPlanRepo(pool)
 	activationRepo := idb.NewActivationRepo(pool)
-	if err := app.EnsureSystemTenant(context.Background(), tenantRepo); err != nil {
-		return nil, err
-	}
 
 	licenseL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
 	tenantL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
@@ -117,6 +115,7 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 				Licenses: licenseRepo,
 				Tenants:  tenantRepo,
 				Products: productRepo,
+				Plans:    planRepo,
 				DB:       pool,
 			},
 			Cache: &cacheFacade{

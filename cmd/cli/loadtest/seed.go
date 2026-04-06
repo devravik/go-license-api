@@ -12,6 +12,7 @@ import (
 type SeedConfig struct {
 	Tenants  int
 	Products int
+	Plans    int
 	Licenses int
 }
 
@@ -19,6 +20,7 @@ type SeedDeps interface {
 	CreateTenant(ctx context.Context, rps, burst int) (*domain.Tenant, string, error)
 	UpdateTenantProfile(ctx context.Context, tenantID, name, slug, email, company, plan string, maxLicenses int, metadata map[string]any) error
 	UpsertProduct(ctx context.Context, p *domain.Product) error
+	UpsertPlan(ctx context.Context, p *domain.Plan) error
 	CreateLicense(ctx context.Context, l *domain.License) error
 	WriteThroughLicense(ctx context.Context, tenantID, key string, lic *domain.License)
 	// Events (optional; no-op when not provided)
@@ -53,19 +55,55 @@ func Seed(ctx context.Context, cfg SeedConfig, deps SeedDeps) (*SeedArtifacts, e
 		arts.Tenants = append(arts.Tenants, ti)
 
 		// products
+		products := make([]*domain.Product, 0, cfg.Products)
 		for p := 0; p < cfg.Products; p++ {
 			prod := &domain.Product{
-				ID:       randomUUID(rng),
+				ID:       randomIDWithPrefix(rng, "prod"),
 				TenantID: tenant.ID,
 				Code:     fmt.Sprintf("prod_%d", p+1),
 				Name:     fmt.Sprintf("Product %d", p+1),
 				IsActive: true,
+				Features: []string{
+					fmt.Sprintf("feature-%d", p+1),
+					"audit-log",
+				},
+				Meta: map[string]any{"seed": true},
 			}
 			if err := deps.UpsertProduct(ctx, prod); err != nil {
 				return nil, fmt.Errorf("upsert product: %w", err)
 			}
+			products = append(products, prod)
 			// Publish for cross-process cache refresh (if wired)
 			deps.PublishProductUpserted(ctx, tenant.ID, prod.Code)
+		}
+		if len(products) == 0 {
+			return nil, fmt.Errorf("seed requires at least one product per tenant")
+		}
+
+		// plans
+		plans := make([]*domain.Plan, 0, cfg.Plans)
+		for p := 0; p < cfg.Plans; p++ {
+			prod := products[p%len(products)]
+			seats := 5 + (p * 5)
+			plan := &domain.Plan{
+				ID:        randomIDWithPrefix(rng, "plan"),
+				TenantID:  tenant.ID,
+				ProductID: &prod.ID,
+				Name:      fmt.Sprintf("Plan %d", p+1),
+				Features: []string{
+					fmt.Sprintf("plan-feature-%d", p+1),
+					"sso",
+				},
+				Limits:   domain.PlanLimits{Seats: seats},
+				IsActive: true,
+			}
+			if err := deps.UpsertPlan(ctx, plan); err != nil {
+				return nil, fmt.Errorf("upsert plan: %w", err)
+			}
+			plans = append(plans, plan)
+		}
+		if len(plans) == 0 {
+			return nil, fmt.Errorf("seed requires at least one plan per tenant")
 		}
 
 		// licenses
@@ -77,11 +115,31 @@ func Seed(ctx context.Context, cfg SeedConfig, deps SeedDeps) (*SeedArtifacts, e
 			// - long expiry window
 			exp := time.Now().Add(365 * 24 * time.Hour)
 			lic := &domain.License{
-				TenantID:  tenant.ID,
-				Key:       key,
-				Product:   "prod_1",
-				Status:    "active",
-				ExpiresAt: &exp,
+				TenantID:   tenant.ID,
+				Key:        key,
+				Status:     "active",
+				ExpiresAt:  &exp,
+				SeatsUsed:  0,
+				Overrides:  domain.LicenseOverride{},
+				Trial:      domain.LicenseTrial{Enabled: false},
+				Metadata:   map[string]any{"seed": true},
+				SeatsTotal: -1,
+			}
+			// Mix license types to match schema and exercise both paths.
+			if k%3 == 0 {
+				prod := products[k%len(products)]
+				lic.Type = "product"
+				lic.ProductID = &prod.ID
+				lic.Features = append([]string(nil), prod.Features...)
+				lic.SeatsTotal = -1
+			} else {
+				plan := plans[k%len(plans)]
+				lic.Type = "plan"
+				lic.PlanID = &plan.ID
+				lic.Features = []string{}
+				if plan.Limits.Seats > 0 {
+					lic.SeatsTotal = plan.Limits.Seats
+				}
 			}
 			if err := deps.CreateLicense(ctx, lic); err != nil {
 				return nil, fmt.Errorf("create license: %w", err)
@@ -96,7 +154,6 @@ func Seed(ctx context.Context, cfg SeedConfig, deps SeedDeps) (*SeedArtifacts, e
 	return arts, nil
 }
 
-func randomUUID(rng *rand.Rand) string {
-	// pseudo-uuid for seed products; not critical
-	return fmt.Sprintf("id_%d_%d", time.Now().UnixNano(), rng.Int63())
+func randomIDWithPrefix(rng *rand.Rand, prefix string) string {
+	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), rng.Int63())
 }

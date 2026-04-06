@@ -82,7 +82,11 @@ func Load() *Config {
 		cfg.NanoIDLength = 12
 	}
 	if strings.TrimSpace(cfg.AdminKey) == "" {
-		log.Fatal("ADMIN_API_KEY is required")
+		log.Fatal(
+			"ADMIN_API_KEY is required.\n" +
+				"Set it in your .env file, for example:\n" +
+				"  ADMIN_API_KEY=replace_me_admin",
+		)
 	}
 	return cfg
 }

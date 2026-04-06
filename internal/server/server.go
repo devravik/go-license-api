@@ -61,7 +61,18 @@ func New() (*Server, *setup.Config) {
 	dbCfg := setup.LoadDatabaseConfig()
 	databaseURL, err := dbCfg.BuildDatabaseURL()
 	if err != nil {
-		log.Fatalf("build database url: %v", err)
+		log.Fatalf(
+			"invalid database configuration: %v.\n"+
+				"Configure either DATABASE_URL or all required DB_* values in .env:\n"+
+				"  DATABASE_URL=postgres://user:pass@127.0.0.1:5432/golicense?sslmode=disable\n"+
+				"  # OR\n"+
+				"  DB_HOST=127.0.0.1\n"+
+				"  DB_PORT=5432\n"+
+				"  DB_DATABASE=golicense\n"+
+				"  DB_USERNAME=postgres\n"+
+				"  DB_PASSWORD=postgres",
+			err,
+		)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -85,7 +96,13 @@ func New() (*Server, *setup.Config) {
 		limits.MaxConns, limits.MinConns, limits.MaxConnLifetime, limits.MaxConnIdleTime)
 	pool, err := idb.ConnectWithLimits(ctx, databaseURL, limits)
 	if err != nil {
-		log.Fatalf("connect to database: %v", err)
+		log.Fatalf(
+			"cannot connect to database: %v.\n"+
+				"Verify PostgreSQL is running and your .env values are correct.\n"+
+				"Example local DSN:\n"+
+				"  DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/golicense?sslmode=disable",
+			err,
+		)
 	}
 
 	licenseRepo := idb.NewLicenseRepo(pool)
@@ -93,8 +110,18 @@ func New() (*Server, *setup.Config) {
 	productRepo := idb.NewProductRepo(pool)
 	planRepo := idb.NewPlanRepo(pool)
 	activationRepo := idb.NewActivationRepo(pool)
-	if err := app.EnsureSystemTenant(context.Background(), tenantRepo); err != nil {
-		log.Fatalf("ensure system tenant: %v", err)
+	tenants, err := tenantRepo.FindAll(context.Background())
+	if err != nil {
+		log.Fatalf("list tenants on startup: %v", err)
+	}
+	if len(tenants) == 0 {
+		log.Fatalf(
+			"no tenants found.\n" +
+				"Create your first tenant before starting the server.\n" +
+				"Run interactive bootstrap:\n" +
+				"  go run ./cmd/cli tenant bootstrap\n" +
+				"The command will ask for tenant details and print the raw API key once.",
+		)
 	}
 
 	fiberCfg := fiber.Config{
@@ -346,34 +373,46 @@ func New() (*Server, *setup.Config) {
 	// Audit query service (admin read path only)
 	auditQuery := audit.NewQueryService(pool)
 
-	// Initialize signing keys and registry (global keypair at startup).
+	// Initialize signing keys and registry.
 	var signerRegistry *icrypto.SignerRegistry
-	if strings.TrimSpace(cfg.SigningKeyPath) != "" {
-		keyData, err := os.ReadFile(cfg.SigningKeyPath)
-		if err != nil {
-			log.Fatalf("cannot read SIGNING_KEY_PATH: %v", err)
-		}
-		raw := strings.TrimSpace(string(keyData))
-		dec, err := base64.StdEncoding.DecodeString(raw)
-		if err != nil {
-			if hx, err2 := hex.DecodeString(raw); err2 == nil {
-				dec = hx
-			}
-		}
-		if len(dec) != ed25519.PrivateKeySize {
-			log.Fatalf("SIGNING_KEY_PATH invalid key size: got=%d want=%d", len(dec), ed25519.PrivateKeySize)
-		}
-		priv := ed25519.PrivateKey(dec)
-		globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
-		signerRegistry = icrypto.NewSignerRegistry(globalSigner)
-	} else {
-		_, priv, err := icrypto.GenerateEd25519KeyPair()
-		if err != nil {
-			log.Fatalf("generate signing keypair: %v", err)
-		}
-		globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
-		signerRegistry = icrypto.NewSignerRegistry(globalSigner)
+	if strings.TrimSpace(cfg.SigningKeyPath) == "" {
+		log.Fatalf(
+			"SIGNING_KEY_PATH is required.\n" +
+				"Generate a signing key and configure .env:\n" +
+				"  1) go run ./cmd/keygen --out .keys/signing_key.b64\n" +
+				"  2) Add to .env: SIGNING_KEY_PATH=.keys/signing_key.b64\n" +
+				"  3) Restart the server",
+		)
 	}
+	keyData, err := os.ReadFile(cfg.SigningKeyPath)
+	if err != nil {
+		log.Fatalf(
+			"cannot read SIGNING_KEY_PATH (%s): %v.\n"+
+				"Generate a key file and update .env:\n"+
+				"  go run ./cmd/keygen --out .keys/signing_key.b64\n"+
+				"  SIGNING_KEY_PATH=.keys/signing_key.b64",
+			cfg.SigningKeyPath, err,
+		)
+	}
+	raw := strings.TrimSpace(string(keyData))
+	dec, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		if hx, err2 := hex.DecodeString(raw); err2 == nil {
+			dec = hx
+		}
+	}
+	if len(dec) != ed25519.PrivateKeySize {
+		log.Fatalf(
+			"SIGNING_KEY_PATH invalid key size: got=%d want=%d.\n"+
+				"Expected a base64 (or hex) encoded Ed25519 private key file.\n"+
+				"Regenerate with:\n"+
+				"  go run ./cmd/keygen --out .keys/signing_key.b64",
+			len(dec), ed25519.PrivateKeySize,
+		)
+	}
+	priv := ed25519.PrivateKey(dec)
+	globalSigner := icrypto.NewEd25519Signer(priv, "global-1", cfg.AppName)
+	signerRegistry = icrypto.NewSignerRegistry(globalSigner)
 
 	// Initialize webhook dispatcher and cache (optional feature).
 	var webhookEncKey []byte

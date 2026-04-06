@@ -60,8 +60,7 @@ paths:
               example:
                 value:
                   license_key: "LIC-ABC-123"
-                  client_id: "host-xyz"
-                  product_code: "pro-app"
+                  product_id: "prod_xxxxxxxx"
       responses:
         '200':
           description: Validation result
@@ -153,54 +152,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /licenses/{license_key}/signed:
+  /licenses/{key}/signed:
     get:
-      summary: Fetch a signed license (JWS/JWT)
-      description: Available when signerRegistry is configured. Returns JWS in compact serialization. Legacy alias `{key}` is also accepted.
+      summary: Fetch a signed offline license envelope
+      description: Available when signerRegistry is configured. Public cache-only endpoint. Returns a detached-signature JSON envelope (`payload` + `signature`).
       operationId: getSignedLicense
-      security:
-        - TenantAuth: []
       parameters:
-        - name: license_key
+        - name: key
           in: path
           required: true
           schema:
             type: string
       responses:
         '200':
-          description: Signed license token
-          content:
-            application/jwt:
-              schema:
-                type: string
-                description: JWS compact serialization
-        '404':
-          description: Not found
+          description: Signed license envelope
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-  /licenses/signed:
-    post:
-      summary: Issue a signed license (JWS/JWT)
-      description: Available when signerRegistry is configured.
-      operationId: postSignedLicense
-      security:
-        - TenantAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SignedLicenseRequest'
-      responses:
-        '200':
-          description: Signed license token
-          content:
-            application/jwt:
-              schema:
-                type: string
-                description: JWS compact serialization
+                $ref: '#/components/schemas/SignedLicenseEnvelope'
         '404':
           description: Not found
           content:
@@ -496,6 +465,7 @@ components:
         error:
           $ref: '#/components/schemas/Error'
       required: [valid]
+      description: On invalid responses, clients should treat `license` as null/absent and use `error` for state.
     ValidationMeta:
       type: object
       properties:
@@ -512,8 +482,10 @@ components:
           $ref: '#/components/schemas/ValidationRef'
         product:
           $ref: '#/components/schemas/ValidationRef'
+          nullable: true
         product_id:
           type: string
+          nullable: true
         expires_at:
           type: string
           format: date-time
@@ -529,6 +501,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          description: Set when grace-period information is available. For `license_in_grace_period`, this is non-null.
         features:
           type: array
           items:
@@ -560,6 +533,10 @@ components:
         hostname:
           type: string
       required: [license_key]
+      example:
+        license_key: LIC-ABC-123
+        client_id: sha256-of-hardware-fingerprint
+        hostname: workstation-42
     ActivationAccepted:
       type: object
       properties:
@@ -581,6 +558,9 @@ components:
         client_id:
           type: string
       required: [license_key]
+      example:
+        license_key: LIC-ABC-123
+        client_id: sha256-of-hardware-fingerprint
     DeactivationAccepted:
       type: object
       properties:
@@ -604,6 +584,9 @@ components:
         event_id:
           type: string
       required: [license_key, units]
+      example:
+        license_key: LIC-ABC-123
+        units: 10
     UsageAccepted:
       type: object
       properties:
@@ -613,15 +596,60 @@ components:
           type: string
           enum: [accepted]
       required: [requestId, status]
-    SignedLicenseRequest:
+    SignedLicenseEnvelope:
       type: object
       properties:
+        payload:
+          type: string
+          description: Canonical JSON string of SignedLicensePayload.
+        signature:
+          type: string
+          description: Base64-encoded Ed25519 signature over raw payload bytes.
+        kid:
+          type: string
+        issuer:
+          type: string
+      required: [payload, signature, kid, issuer]
+    SignedLicensePayload:
+      type: object
+      properties:
+        license_id:
+          type: string
         license_key:
           type: string
-        key:
+        type:
           type: string
-          description: Deprecated alias for license_key
-      required: [license_key]
+          enum: [plan, product]
+        tenant_id:
+          type: string
+        plan_id:
+          type: string
+        product_id:
+          type: string
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        not_before:
+          type: string
+          format: date-time
+        issued_at:
+          type: string
+          format: date-time
+        seats_total:
+          type: integer
+        seats_used:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        kid:
+          type: string
+        issuer:
+          type: string
+      required: [license_id, license_key, type, tenant_id, status, not_before, issued_at, features, kid, issuer]
     CreateTenantRequest:
       type: object
       properties:
@@ -710,16 +738,19 @@ components:
             properties:
               kid:
                 type: string
+              issuer:
+                type: string
               kty:
                 type: string
+                enum: [OKP]
+              crv:
+                type: string
+                enum: [Ed25519]
               alg:
                 type: string
-              use:
+                enum: [EdDSA]
+              x:
                 type: string
-              n:
-                type: string
-              e:
-                type: string
-            required: [kid, kty]
+            required: [kid, issuer, kty, crv, alg, x]
 security: []
 
