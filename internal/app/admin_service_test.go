@@ -15,6 +15,7 @@ type mockTenantRepo struct {
 	createFunc        func(ctx context.Context, t *domain.Tenant) error
 	updateStatusFunc  func(ctx context.Context, id, status string) error
 	findByIDFunc      func(ctx context.Context, id string) (*domain.Tenant, error)
+	findAllFunc       func(ctx context.Context) ([]*domain.Tenant, error)
 	rotateAPIKeyFunc  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error
 	updateLimitsFunc  func(ctx context.Context, id string, rps, burst int) error
 	updateIPAllowFunc func(ctx context.Context, id string, cidrs []string) error
@@ -29,7 +30,7 @@ func (m *mockTenantRepo) FindByAPIKey(ctx context.Context, apiKey string) (*doma
 	return nil, errors.New("not implemented")
 }
 func (m *mockTenantRepo) FindAll(ctx context.Context) ([]*domain.Tenant, error) {
-	return nil, errors.New("not implemented")
+	return m.findAllFunc(ctx)
 }
 func (m *mockTenantRepo) Create(ctx context.Context, t *domain.Tenant) error {
 	m.lastCreateTenant = t
@@ -156,6 +157,7 @@ func TestAdminService_CreateTenant_WritesCachesAndInvalidatesLimiter(t *testing.
 		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
 		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
 		findByIDFunc:      func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
+		findAllFunc:       func(ctx context.Context) ([]*domain.Tenant, error) { return []*domain.Tenant{}, nil },
 		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
 		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
 		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
@@ -180,7 +182,7 @@ func TestAdminService_CreateTenant_WritesCachesAndInvalidatesLimiter(t *testing.
 	// New signature requires product repo and product cache; tests can pass nils.
 	var prodRepo domain.ProductRepository
 	var prodCache ports.ProductStore
-	svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, licCache, tenCache, prodCache, limiter, auditor)
+	svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, nil, licCache, tenCache, prodCache, nil, limiter, auditor)
 	tenant, apiKey, err := svc.CreateTenant(ctx, 50, 100)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -219,6 +221,7 @@ func TestAdminService_RevokeLicense_UpdatesLicenseCacheAfterRevoke(t *testing.T)
 		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
 		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
 		findByIDFunc:      func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
+		findAllFunc:       func(ctx context.Context) ([]*domain.Tenant, error) { return []*domain.Tenant{}, nil },
 		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
 		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
 		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
@@ -234,7 +237,7 @@ func TestAdminService_RevokeLicense_UpdatesLicenseCacheAfterRevoke(t *testing.T)
 	{
 		var prodRepo domain.ProductRepository
 		var prodCache ports.ProductStore
-		svc := app.NewAdminService(repoLicense, tenantRepo, prodRepo, licCache, tenCache, prodCache, limiter, auditor)
+		svc := app.NewAdminService(repoLicense, tenantRepo, prodRepo, nil, licCache, tenCache, prodCache, nil, limiter, auditor)
 	if err := svc.RevokeLicense(ctx, tenantID, key); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -272,6 +275,7 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 			}
 			return &domain.Tenant{ID: tenantID, APIKey: "tenant-key"}, nil
 		},
+		findAllFunc:       func(ctx context.Context) ([]*domain.Tenant, error) { return []*domain.Tenant{}, nil },
 		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
 		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
 		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
@@ -300,7 +304,7 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 	{
 		var prodRepo domain.ProductRepository
 		var prodCache ports.ProductStore
-		svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, licCache, tenCache, prodCache, limiter, auditor)
+		svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, nil, licCache, tenCache, prodCache, nil, limiter, auditor)
 	if err := svc.SuspendTenant(ctx, tenantID, "fraud"); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 		}
@@ -317,5 +321,93 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 	}
 	if auditor.writeCount != 1 || auditor.lastEntry.Event != domain.EventTenantSuspended {
 		t.Fatalf("expected auditor write %q; got count=%d event=%s", domain.EventTenantSuspended, auditor.writeCount, auditor.lastEntry.Event)
+	}
+}
+
+func TestEnsureSystemTenant_CreatesWhenEmpty(t *testing.T) {
+	ctx := context.Background()
+	var created *domain.Tenant
+	repo := &mockTenantRepo{
+		findAllFunc: func(ctx context.Context) ([]*domain.Tenant, error) {
+			return []*domain.Tenant{}, nil
+		},
+		createFunc: func(ctx context.Context, t *domain.Tenant) error {
+			created = t
+			return nil
+		},
+		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
+		findByIDFunc:      func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
+		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
+		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
+		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
+	}
+
+	if err := app.EnsureSystemTenant(ctx, repo); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if created == nil {
+		t.Fatalf("expected system tenant to be created")
+	}
+	if len(created.ID) < 4 || created.ID[:4] != "ten_" {
+		t.Fatalf("expected generated tenant ID with ten_ prefix, got %q", created.ID)
+	}
+	if created.Metadata == nil || created.Metadata["is_system"] != true {
+		t.Fatalf("expected is_system=true in metadata")
+	}
+}
+
+func TestAdminService_ResolveTenantID_FallsBackToSystemTenant(t *testing.T) {
+	ctx := context.Background()
+	tenantRepo := &mockTenantRepo{
+		findAllFunc: func(ctx context.Context) ([]*domain.Tenant, error) {
+			return []*domain.Tenant{
+				{ID: "ten_abc", Metadata: map[string]any{"is_system": true}},
+			}, nil
+		},
+		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
+		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
+		findByIDFunc:      func(ctx context.Context, id string) (*domain.Tenant, error) { return nil, nil },
+		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
+		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
+		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
+	}
+	licCache := &mockLicenseCache{invalidateTenant: func(ctx context.Context, tenantID string) error { return nil }}
+	svc := app.NewAdminService(&mockLicenseRepo{
+		revokeFunc:    func(ctx context.Context, tenantID, key string) error { return nil },
+		findByKeyFunc: func(ctx context.Context, tenantID, key string) (*domain.License, error) { return nil, nil },
+	}, tenantRepo, nil, nil, licCache, &mockTenantCache{}, nil, nil, &mockLimiter{}, &mockAuditor{})
+
+	got, err := svc.ResolveTenantID(ctx, "")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if got != "ten_abc" {
+		t.Fatalf("expected ten_abc, got %s", got)
+	}
+}
+
+func TestAdminService_DeleteTenant_ProtectsSystemTenant(t *testing.T) {
+	ctx := context.Background()
+	tenantID := "ten_system"
+	tenantRepo := &mockTenantRepo{
+		findByIDFunc: func(ctx context.Context, id string) (*domain.Tenant, error) {
+			return &domain.Tenant{ID: tenantID, Metadata: map[string]any{"is_system": true}}, nil
+		},
+		findAllFunc:       func(ctx context.Context) ([]*domain.Tenant, error) { return []*domain.Tenant{}, nil },
+		createFunc:        func(ctx context.Context, t *domain.Tenant) error { return nil },
+		updateStatusFunc:  func(ctx context.Context, id, status string) error { return nil },
+		rotateAPIKeyFunc:  func(ctx context.Context, id, newKey string, gracePeriod time.Duration) error { return nil },
+		updateLimitsFunc:  func(ctx context.Context, id string, rps, burst int) error { return nil },
+		updateIPAllowFunc: func(ctx context.Context, id string, cidrs []string) error { return nil },
+	}
+	licCache := &mockLicenseCache{invalidateTenant: func(ctx context.Context, tenantID string) error { return nil }}
+	svc := app.NewAdminService(&mockLicenseRepo{
+		revokeFunc:    func(ctx context.Context, tenantID, key string) error { return nil },
+		findByKeyFunc: func(ctx context.Context, tenantID, key string) (*domain.License, error) { return nil, nil },
+	}, tenantRepo, nil, nil, licCache, &mockTenantCache{}, nil, nil, &mockLimiter{}, &mockAuditor{})
+
+	err := svc.DeleteTenant(ctx, tenantID)
+	if err == nil || err.Error() != "system_tenant_protected" {
+		t.Fatalf("expected system_tenant_protected, got %v", err)
 	}
 }

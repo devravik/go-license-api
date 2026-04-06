@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,17 +23,13 @@ func NewLicenseRepo(db *pgxpool.Pool) domain.LicenseRepository {
 func (r *licenseRepo) FindByKey(ctx context.Context, tenantID, key string) (*domain.License, error) {
 	const q = `
 		SELECT
-			id, tenant_id, key,
-			product_id, product,
-			status, plan, is_trial,
-			trial_ends_at, expires_at, grace_period_days,
-			seat_count, max_activations,
-			usage_limit, usage_used,
-			features, meta, created_at,
-			issued_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason,
-			last_validated_at, version, deleted_at
+			id, tenant_id, type, plan_id, product_id, key, status, expires_at,
+			seats_total, seats_used, features,
+			overrides_features_add, overrides_features_remove,
+			trial_enabled, trial_ends_at, trial_features,
+			metadata, created_at, updated_at
 		FROM licenses
-		WHERE tenant_id = $1 AND key = $2
+		WHERE tenant_id = $1 AND key = $2 AND deleted_at IS NULL
 		LIMIT 1
 	`
 
@@ -41,28 +38,23 @@ func (r *licenseRepo) FindByKey(ctx context.Context, tenantID, key string) (*dom
 	if err := row.Scan(
 		&l.ID,
 		&l.TenantID,
-		&l.Key,
+		&l.Type,
+		&l.PlanID,
 		&l.ProductID,
-		&l.Product,
+		&l.Key,
 		&l.Status,
-		&l.Plan,
-		&l.IsTrial,
-		&l.TrialEndsAt,
 		&l.ExpiresAt,
-		&l.GracePeriodDays,
-		&l.SeatCount,
-		&l.MaxActivations,
-		&l.UsageLimit,
-		&l.UsageUsed,
+		&l.SeatsTotal,
+		&l.SeatsUsed,
 		&l.Features,
-		&l.Meta,
+		&l.Overrides.FeaturesAdd,
+		&l.Overrides.FeaturesRemove,
+		&l.Trial.Enabled,
+		&l.Trial.EndsAt,
+		&l.Trial.Features,
+		&l.Metadata,
 		&l.CreatedAt,
-		&l.IssuedAt,
-		&l.RevokedAt,
-		&l.RevokedReason,
-		&l.LastValidatedAt,
-		&l.Version,
-		&l.DeletedAt,
+		&l.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrLicenseNotFound
@@ -76,31 +68,32 @@ func (r *licenseRepo) FindByKey(ctx context.Context, tenantID, key string) (*dom
 func (r *licenseRepo) Create(ctx context.Context, l *domain.License) error {
 	const q = `
 		INSERT INTO licenses (
-			tenant_id, key, product_id, product,
-			status, plan, is_trial,
-			trial_ends_at, expires_at, grace_period_days,
-			seat_count, max_activations,
-			usage_limit, usage_used,
-			features, meta
+			id, tenant_id, type, plan_id, product_id, key, status, expires_at,
+			seats_total, seats_used, features,
+			overrides_features_add, overrides_features_remove,
+			trial_enabled, trial_ends_at, trial_features, metadata
 		)
 		VALUES (
-			$1, $2, $3, $4,
-			$5, $6, $7,
-			$8, $9, $10,
-			$11, $12,
-			$13, $14,
-			$15, $16
+			$1,$2,$3,$4,$5,$6,$7,$8,
+			$9,$10,$11,
+			$12,$13,
+			$14,$15,$16,$17
 		)
 		RETURNING id
 	`
+	if l.ID == "" {
+		id, err := idgen.NewID("lic")
+		if err != nil {
+			return fmt.Errorf("generate license id: %w", err)
+		}
+		l.ID = id
+	}
 
 	return r.db.QueryRow(ctx, q,
-		l.TenantID, l.Key, l.ProductID, l.Product,
-		l.Status, l.Plan, l.IsTrial,
-		l.TrialEndsAt, l.ExpiresAt, l.GracePeriodDays,
-		l.SeatCount, l.MaxActivations,
-		l.UsageLimit, l.UsageUsed,
-		l.Features, l.Meta,
+		l.ID, l.TenantID, l.Type, l.PlanID, l.ProductID, l.Key, l.Status, l.ExpiresAt,
+		l.SeatsTotal, l.SeatsUsed, l.Features,
+		l.Overrides.FeaturesAdd, l.Overrides.FeaturesRemove,
+		l.Trial.Enabled, l.Trial.EndsAt, l.Trial.Features, l.Metadata,
 	).Scan(&l.ID)
 }
 
@@ -110,7 +103,7 @@ func (r *licenseRepo) Revoke(ctx context.Context, tenantID, key string) error {
 		SET status = 'revoked',
 			revoked_at = NOW(),
 			revoked_reason = revoked_reason
-		WHERE tenant_id = $1 AND key = $2
+		WHERE tenant_id = $1 AND key = $2 AND deleted_at IS NULL
 	`
 	_, err := r.db.Exec(ctx, q, tenantID, key)
 	return err
@@ -119,32 +112,28 @@ func (r *licenseRepo) Revoke(ctx context.Context, tenantID, key string) error {
 func (r *licenseRepo) Update(ctx context.Context, l *domain.License) error {
 	const q = `
 		UPDATE licenses SET
-			product_id = $3,
-			product = $4,
-			status = $5,
-			plan = $6,
-			is_trial = $7,
-			trial_ends_at = $8,
-			expires_at = $9,
-			grace_period_days = $10,
-			seat_count = $11,
-			max_activations = $12,
-			usage_limit = $13,
-			usage_used = $14,
-			features = $15,
-			meta = $16,
-			last_validated_at = $17
-		WHERE tenant_id = $1 AND key = $2
+			type = $3,
+			plan_id = $4,
+			product_id = $5,
+			status = $6,
+			expires_at = $7,
+			seats_total = $8,
+			seats_used = $9,
+			features = $10,
+			overrides_features_add = $11,
+			overrides_features_remove = $12,
+			trial_enabled = $13,
+			trial_ends_at = $14,
+			trial_features = $15,
+			metadata = $16
+		WHERE tenant_id = $1 AND key = $2 AND deleted_at IS NULL
 	`
 	_, err := r.db.Exec(ctx, q,
 		l.TenantID, l.Key,
-		l.ProductID, l.Product,
-		l.Status, l.Plan, l.IsTrial,
-		l.TrialEndsAt, l.ExpiresAt, l.GracePeriodDays,
-		l.SeatCount, l.MaxActivations,
-		l.UsageLimit, l.UsageUsed,
-		l.Features, l.Meta,
-		l.LastValidatedAt,
+		l.Type, l.PlanID, l.ProductID,
+		l.Status, l.ExpiresAt, l.SeatsTotal, l.SeatsUsed,
+		l.Features, l.Overrides.FeaturesAdd, l.Overrides.FeaturesRemove,
+		l.Trial.Enabled, l.Trial.EndsAt, l.Trial.Features, l.Metadata,
 	)
 	return err
 }
@@ -152,17 +141,13 @@ func (r *licenseRepo) Update(ctx context.Context, l *domain.License) error {
 func (r *licenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*domain.License, error) {
 	const q = `
 		SELECT
-			id, tenant_id, key,
-			product_id, product,
-			status, plan, is_trial,
-			trial_ends_at, expires_at, grace_period_days,
-			seat_count, max_activations,
-			usage_limit, usage_used,
-			features, meta, created_at,
-			issued_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason,
-			last_validated_at, version, deleted_at
+			id, tenant_id, type, plan_id, product_id, key, status, expires_at,
+			seats_total, seats_used, features,
+			overrides_features_add, overrides_features_remove,
+			trial_enabled, trial_ends_at, trial_features,
+			metadata, created_at, updated_at
 		FROM licenses
-		WHERE tenant_id = $1
+		WHERE tenant_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -177,28 +162,23 @@ func (r *licenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, 
 		if err := rows.Scan(
 			&l.ID,
 			&l.TenantID,
-			&l.Key,
+			&l.Type,
+			&l.PlanID,
 			&l.ProductID,
-			&l.Product,
+			&l.Key,
 			&l.Status,
-			&l.Plan,
-			&l.IsTrial,
-			&l.TrialEndsAt,
 			&l.ExpiresAt,
-			&l.GracePeriodDays,
-			&l.SeatCount,
-			&l.MaxActivations,
-			&l.UsageLimit,
-			&l.UsageUsed,
+			&l.SeatsTotal,
+			&l.SeatsUsed,
 			&l.Features,
-			&l.Meta,
+			&l.Overrides.FeaturesAdd,
+			&l.Overrides.FeaturesRemove,
+			&l.Trial.Enabled,
+			&l.Trial.EndsAt,
+			&l.Trial.Features,
+			&l.Metadata,
 			&l.CreatedAt,
-			&l.IssuedAt,
-			&l.RevokedAt,
-			&l.RevokedReason,
-			&l.LastValidatedAt,
-			&l.Version,
-			&l.DeletedAt,
+			&l.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("license scan: %w", err)
 		}
@@ -214,16 +194,13 @@ func (r *licenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, 
 func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.License, error) {
 	const q = `
 		SELECT
-			id, tenant_id, key,
-			product_id, product,
-			status, plan, is_trial,
-			trial_ends_at, expires_at, grace_period_days,
-			seat_count, max_activations,
-			usage_limit, usage_used,
-			features, meta, created_at,
-			issued_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason,
-			last_validated_at, version, deleted_at
+			id, tenant_id, type, plan_id, product_id, key, status, expires_at,
+			seats_total, seats_used, features,
+			overrides_features_add, overrides_features_remove,
+			trial_enabled, trial_ends_at, trial_features,
+			metadata, created_at, updated_at
 		FROM licenses
+		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
 		LIMIT $1
 	`
@@ -240,28 +217,23 @@ func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.Licens
 		if err := rows.Scan(
 			&l.ID,
 			&l.TenantID,
-			&l.Key,
+			&l.Type,
+			&l.PlanID,
 			&l.ProductID,
-			&l.Product,
+			&l.Key,
 			&l.Status,
-			&l.Plan,
-			&l.IsTrial,
-			&l.TrialEndsAt,
 			&l.ExpiresAt,
-			&l.GracePeriodDays,
-			&l.SeatCount,
-			&l.MaxActivations,
-			&l.UsageLimit,
-			&l.UsageUsed,
+			&l.SeatsTotal,
+			&l.SeatsUsed,
 			&l.Features,
-			&l.Meta,
+			&l.Overrides.FeaturesAdd,
+			&l.Overrides.FeaturesRemove,
+			&l.Trial.Enabled,
+			&l.Trial.EndsAt,
+			&l.Trial.Features,
+			&l.Metadata,
 			&l.CreatedAt,
-			&l.IssuedAt,
-			&l.RevokedAt,
-			&l.RevokedReason,
-			&l.LastValidatedAt,
-			&l.Version,
-			&l.DeletedAt,
+			&l.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("recent license scan: %w", err)
 		}
@@ -275,7 +247,7 @@ func (r *licenseRepo) GetRecent(ctx context.Context, limit int) ([]domain.Licens
 
 // Optional helper not part of the interface.
 func (r *licenseRepo) UpdateLastValidatedAt(ctx context.Context, tenantID, key string, at time.Time) error {
-	const q = `UPDATE licenses SET last_validated_at = $3 WHERE tenant_id = $1 AND key = $2`
+	const q = `UPDATE licenses SET last_validated_at = $3 WHERE tenant_id = $1 AND key = $2 AND deleted_at IS NULL`
 	_, err := r.db.Exec(ctx, q, tenantID, key, at)
 	return err
 }

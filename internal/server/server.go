@@ -21,6 +21,7 @@ import (
 	iaudit "github.com/devravik/go-license-api/internal/infrastructure/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
 	icrypto "github.com/devravik/go-license-api/internal/security"
 	"github.com/devravik/go-license-api/internal/setup"
@@ -48,6 +49,7 @@ type Server struct {
 
 func New() (*Server, *setup.Config) {
 	cfg := setup.Load()
+	idgen.ConfigureLength(cfg.NanoIDLength)
 	logCfg := setup.LoadLoggingConfig()
 	cacheCfg := setup.LoadCacheConfig()
 	limiterCfg := setup.LoadLimiterConfig()
@@ -89,7 +91,11 @@ func New() (*Server, *setup.Config) {
 	licenseRepo := idb.NewLicenseRepo(pool)
 	tenantRepo := idb.NewTenantRepo(pool)
 	productRepo := idb.NewProductRepo(pool)
+	planRepo := idb.NewPlanRepo(pool)
 	activationRepo := idb.NewActivationRepo(pool)
+	if err := app.EnsureSystemTenant(context.Background(), tenantRepo); err != nil {
+		log.Fatalf("ensure system tenant: %v", err)
+	}
 
 	fiberCfg := fiber.Config{
 		AppName:      cfg.AppName,
@@ -130,8 +136,11 @@ func New() (*Server, *setup.Config) {
 			// Return a safe, generic error response.
 			// Keep the minimal schema aligned with validation responses that may check `valid`.
 			return c.Status(code).JSON(fiber.Map{
-				"valid":      false,
-				"error":      "internal_error",
+				"valid": false,
+				"error": fiber.Map{
+					"code":    "internal_error",
+					"message": "Internal server error",
+				},
 				"request_id": reqID,
 			})
 		},
@@ -177,11 +186,17 @@ func New() (*Server, *setup.Config) {
 		log.Fatalf("init product l1: %v", err)
 	}
 	productStore := cache.NewProductStore(productL1, l2, cacheCfg.ProductTTL, cacheCfg.ProductTTLNegative)
+	planL1, err := cache.NewL1Cache(cacheCfg.L1MaxEntries)
+	if err != nil {
+		log.Fatalf("init plan l1: %v", err)
+	}
+	planStore := cache.NewPlanStore(planL1, l2, cacheCfg.PlanTTL, cacheCfg.PlanTTLNegative)
 
 	// Cross-instance invalidation listeners (self-reconnecting).
 	if l2 != nil {
 		licenseStore.SubscribeInvalidation(context.Background())
 		tenantStore.SubscribeInvalidation(context.Background())
+		planStore.SubscribeInvalidation(context.Background())
 		// Subscribe to tenant created/updated events to keep cache fresh across processes.
 		l2.Subscribe(context.Background(), "tenant:created", func(tenantID string) {
 			// Control-plane read allowed in background to populate cache
@@ -236,7 +251,7 @@ func New() (*Server, *setup.Config) {
 	// Fetch tenants once for reuse across tenant and product warmups.
 	var allTenants []*domain.Tenant
 	var tenantsErr error
-	if cacheCfg.WarmUpTenantLimit > 0 || cacheCfg.WarmUpProductLimit > 0 {
+	if cacheCfg.WarmUpTenantLimit > 0 || cacheCfg.WarmUpProductLimit > 0 || cacheCfg.WarmUpPlanLimit > 0 {
 		allTenants, tenantsErr = tenantRepo.FindAll(wctx)
 		if tenantsErr != nil {
 			log.Printf("event=startup component=cache_warmup target=tenant_fetch status=error err=%v", tenantsErr)
@@ -287,6 +302,27 @@ func New() (*Server, *setup.Config) {
 		}
 		log.Printf("event=startup component=cache_warmup target=product status=success products=%d", warmed)
 	}
+	// Plan warmup (bounded): load plans by tenant up to configured cap.
+	if cacheCfg.WarmUpPlanLimit > 0 && tenantsErr == nil {
+		warmed := 0
+		for _, t := range allTenants {
+			if warmed >= cacheCfg.WarmUpPlanLimit {
+				break
+			}
+			plist, perr := planRepo.ListByTenant(wctx, t.ID)
+			if perr != nil {
+				continue
+			}
+			for _, p := range plist {
+				planStore.Set(wctx, t.ID, p.ID, p)
+				warmed++
+				if warmed >= cacheCfg.WarmUpPlanLimit {
+					break
+				}
+			}
+		}
+		log.Printf("event=startup component=cache_warmup target=plan status=success plans=%d", warmed)
+	}
 
 	rateLimiter := middleware.NewRateLimiter()
 	failLimiter := middleware.NewAdaptiveFailLimiter(limiterCfg, cacheCfg.RedisURL)
@@ -302,7 +338,7 @@ func New() (*Server, *setup.Config) {
 	activationLock := ilock.NewActivationLock()
 	activationSvc := app.NewActivationService(licenseStore, licenseRepo, licenseStore, activationRepo, asyncAuditWriter, activationLock)
 
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, licenseStore, tenantStore, productStore, rateLimiter, asyncAuditWriter)
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, planRepo, licenseStore, tenantStore, productStore, planStore, rateLimiter, asyncAuditWriter)
 	poolSvc := worker.NewPool(cfg.WorkerCount, cfg.WorkerQueueSize, valSvc, cfg.WorkerTimeout)
 	poolCtx, poolCancel := context.WithCancel(context.Background())
 	poolSvc.Start(poolCtx)

@@ -14,14 +14,18 @@ import (
 // LicensePayload is the data embedded in a signed license file.
 // Includes NotBefore for replay/clock-skew protection.
 type LicensePayload struct {
+	LicenseID  string    `json:"license_id"`
 	LicenseKey string    `json:"license_key"`
-	Product    string    `json:"product"`
+	Type       string    `json:"type"`
 	TenantID   string    `json:"tenant_id"`
-	Plan       string    `json:"plan"`
+	PlanID     string    `json:"plan_id,omitempty"`
+	ProductID  string    `json:"product_id,omitempty"`
+	Status     string    `json:"status"`
 	ExpiresAt  time.Time `json:"expires_at"`
 	NotBefore  time.Time `json:"not_before"`
 	IssuedAt   time.Time `json:"issued_at"`
-	Seats      int       `json:"seats"`
+	SeatsTotal int       `json:"seats_total"`
+	SeatsUsed  int       `json:"seats_used"`
 	Features   []string  `json:"features"`
 	Kid        string    `json:"kid"`
 	Issuer     string    `json:"issuer"`
@@ -61,22 +65,39 @@ func GenerateEd25519KeyPair() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 func (s *ed25519Signer) Sign(_ context.Context, license *domain.License) ([]byte, error) {
 	now := time.Now()
 	payload := &LicensePayload{
+		LicenseID:  license.ID,
 		LicenseKey: license.Key,
-		Product:    license.Product,
+		Type:       license.Type,
 		TenantID:   license.TenantID,
-		Plan:       license.Plan,
-		Features:   license.Features,
+		Status:     license.Status,
+		Features:   license.FinalFeatures,
 		IssuedAt:   now,
 		NotBefore:  now.Add(-30 * time.Second),
 		Kid:        s.kid,
 		Issuer:     s.issuer,
 	}
+	if license.PlanID != nil {
+		payload.PlanID = *license.PlanID
+	} else if license.Plan != "" {
+		payload.PlanID = license.Plan
+	}
+	if license.ProductID != nil {
+		payload.ProductID = *license.ProductID
+	} else if license.Product != "" {
+		payload.ProductID = license.Product
+	}
+	if len(payload.Features) == 0 {
+		payload.Features = license.Features
+	}
 	if license.ExpiresAt != nil {
 		payload.ExpiresAt = *license.ExpiresAt
 	}
-	if license.SeatCount != nil {
-		payload.Seats = *license.SeatCount
+	if license.SeatsTotal != 0 {
+		payload.SeatsTotal = license.SeatsTotal
+	} else if license.SeatCount != nil {
+		payload.SeatsTotal = *license.SeatCount
 	}
+	payload.SeatsUsed = license.SeatsUsed
 
 	data, err := marshalStableJSON(payload)
 	if err != nil {

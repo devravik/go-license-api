@@ -160,7 +160,7 @@ func TestValidationService_ValidLicense(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !got.Valid || got.Meta == nil || got.Meta.Plan != "pro" {
+	if !got.Valid || got.Meta == nil || got.Meta.Plan == nil || got.Meta.Plan.ID != "pro" {
 		t.Fatalf("unexpected result: %+v", got)
 	}
 }

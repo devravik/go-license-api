@@ -29,6 +29,17 @@ type dummyAdmin struct{}
 func (d *dummyAdmin) CreateTenant(ctx context.Context, rps, burst int) (*domain.Tenant, string, error) {
 	return &domain.Tenant{ID: "t"}, "k", nil
 }
+func (d *dummyAdmin) ResolveTenantID(ctx context.Context, tenantID string) (string, error) {
+	if tenantID == "" {
+		return "t-system", nil
+	}
+	return tenantID, nil
+}
+func (d *dummyAdmin) CreateLicense(ctx context.Context, l *domain.License) error { return nil }
+func (d *dummyAdmin) GetLicense(ctx context.Context, tenantID, key string) (*domain.License, error) {
+	return &domain.License{TenantID: tenantID, Key: key}, nil
+}
+func (d *dummyAdmin) UpdateLicense(ctx context.Context, l *domain.License) error { return nil }
 func (d *dummyAdmin) RevokeLicense(ctx context.Context, tenantID, key string) error    { return nil }
 func (d *dummyAdmin) SuspendTenant(ctx context.Context, tenantID, reason string) error { return nil }
 func (d *dummyAdmin) ReinstateTenant(ctx context.Context, tenantID string) error       { return nil }
@@ -48,7 +59,27 @@ func (d *dummyAdmin) UpsertProduct(ctx context.Context, p *domain.Product) error
 func (d *dummyAdmin) DeleteProduct(ctx context.Context, tenantID, productID string) error {
 	return nil
 }
+func (d *dummyAdmin) RestoreProduct(ctx context.Context, tenantID, productID string) error {
+	return nil
+}
 func (d *dummyAdmin) SetProductActive(ctx context.Context, tenantID, productID string, active bool) error {
+	return nil
+}
+func (d *dummyAdmin) CreatePlan(ctx context.Context, p *domain.Plan) error { return nil }
+func (d *dummyAdmin) UpdatePlan(ctx context.Context, p *domain.Plan) error { return nil }
+func (d *dummyAdmin) GetPlan(ctx context.Context, tenantID, planID string) (*domain.Plan, error) {
+	return &domain.Plan{ID: planID, TenantID: tenantID, Name: "pro"}, nil
+}
+func (d *dummyAdmin) ListPlans(ctx context.Context, tenantID string) ([]*domain.Plan, error) {
+	return []*domain.Plan{}, nil
+}
+func (d *dummyAdmin) DeletePlan(ctx context.Context, tenantID, planID string) error {
+	return nil
+}
+func (d *dummyAdmin) RestorePlan(ctx context.Context, tenantID, planID string) error {
+	return nil
+}
+func (d *dummyAdmin) SetPlanActive(ctx context.Context, tenantID, planID string, active bool) error {
 	return nil
 }
 
@@ -58,7 +89,6 @@ func newRouterTestApp(t *testing.T) *fiber.App {
 		AppName:           "Go License API",
 		AppPort:           "8080",
 		AdminKey:          "admin",
-		AppMode:           "multi",
 		AppEnv:            "test",
 		JSONEngine:        "std",
 		WorkerCount:       1,

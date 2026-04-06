@@ -50,7 +50,7 @@ curl -X POST http://localhost:3000/licenses/validate \
   -H "Content-Type: application/json" \
   -H "X-Tenant-ID: <tenant_id>" \
   -H "X-API-Key: <api_key>" \
-  -d '{"key": "ABC-123", "product": "my-app"}'
+  -d '{"key": "ABC-123", "product_id": "prod_xxxxxxxx"}'
 ```
 
 ---
@@ -82,7 +82,7 @@ Tenant Auth → IP Guard → Rate Limit
   ↓
 Queue → Worker Pool
   ↓
-Validation (L1 → L2 → DB fallback)
+Validation (L1 → L2 cache-only)
   ↓
 Audit Log + Webhooks
   ↓
@@ -135,10 +135,22 @@ Response
 {
   "valid": true,
   "meta": {
-    "plan": "pro",
-    "expires_at": "2026-12-31",
+    "license_id": "lic_xxxxxxxx",
+    "status": "active",
+    "type": "plan",
+    "plan_id": "plan_xxxxxxxx",
+    "plan": {
+      "id": "plan_xxxxxxxx",
+      "name": "Pro"
+    },
+    "product_id": "prod_xxxxxxxx",
+    "product": {
+      "id": "prod_xxxxxxxx",
+      "name": "My App"
+    },
+    "expires_at": "2026-12-31T00:00:00Z",
     "seats_total": 10,
-    "seats_used": 2,
+    "unlimited_seats": false,
     "trial": false,
     "features": ["sso", "audit-log"]
   }

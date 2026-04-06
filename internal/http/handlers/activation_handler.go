@@ -97,7 +97,13 @@ func (h *Handler) Activate(c fiber.Ctx) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrSeatLimitReached):
-			return c.Status(fiber.StatusForbidden).JSON(dto.ActivateResponse{Success: false, Activated: false, RequestID: requestID(c), Timestamp: nowISO(), Error: dto.NewError("seat_limit_reached", "Seat limit reached")})
+			return c.Status(fiber.StatusForbidden).JSON(dto.ActivateResponse{
+				Success:   false,
+				Activated: false,
+				RequestID: requestID(c),
+				Timestamp: nowISO(),
+				Error:     dto.NewError("seats_limit_exceeded", "Seat limit reached"),
+			})
 		case errors.Is(err, domain.ErrLicenseNotFound):
 			return c.Status(fiber.StatusNotFound).JSON(dto.ActivateResponse{Success: false, Activated: false, RequestID: requestID(c), Timestamp: nowISO(), Error: dto.NewError("license_not_found", "License not found")})
 		case errors.Is(err, domain.ErrLicenseExpired):
@@ -113,21 +119,31 @@ func (h *Handler) Activate(c fiber.Ctx) error {
 	}
 
 	resp := dto.ActivateResponse{
-		Success:   true,
-		Activated: true,
-		ClientID:  record.MachineID,
-		RequestID: requestID(c),
-		Timestamp: nowISO(),
+		Success:      true,
+		Activated:    true,
+		ActivationID: record.ID,
+		ClientID:     record.ClientID,
+		RequestID:    requestID(c),
+		Timestamp:    nowISO(),
 	}
-	if remaining >= 0 && totalSeats >= 0 {
+	if totalSeats == -1 {
+		resp.UnlimitedSeats = true
+		resp.SeatsRemaining = nil
+	} else if remaining >= 0 && totalSeats >= 0 {
+		resp.SeatsRemaining = &remaining
 		resp.Seats = &struct {
-			Used      int `json:"used"`
-			Total     int `json:"total"`
-			Remaining int `json:"remaining"`
+			Used      int  `json:"used"`
+			Total     int  `json:"total"`
+			Remaining *int `json:"remaining"`
 		}{
 			Used:      totalSeats - remaining,
 			Total:     totalSeats,
-			Remaining: remaining,
+			Remaining: &remaining,
+		}
+	}
+	if h.LicenseStore != nil {
+		if lic, err := h.LicenseStore.GetByGlobalKey(c.Context(), licenseKey); err == nil && lic != nil {
+			resp.License = activationLicenseMeta(lic, remaining, totalSeats)
 		}
 	}
 
@@ -203,4 +219,56 @@ func requestID(c fiber.Ctx) string {
 
 func nowISO() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func activationLicenseMeta(lic *domain.License, remaining, totalSeats int) *domain.ValidationMeta {
+	var planRef *domain.ValidationRef
+	planID := ""
+	if lic.PlanID != nil && *lic.PlanID != "" {
+		planID = *lic.PlanID
+		planRef = &domain.ValidationRef{ID: *lic.PlanID}
+	} else if lic.Plan != "" {
+		planID = lic.Plan
+		planRef = &domain.ValidationRef{ID: lic.Plan, Name: lic.Plan}
+	}
+	var productRef *domain.ValidationRef
+	productID := ""
+	if lic.ProductID != nil && *lic.ProductID != "" {
+		productID = *lic.ProductID
+		productRef = &domain.ValidationRef{ID: *lic.ProductID}
+	} else if lic.Product != "" {
+		productID = lic.Product
+		productRef = &domain.ValidationRef{ID: lic.Product, Name: lic.Product}
+	}
+	features := lic.FinalFeatures
+	if len(features) == 0 {
+		features = lic.Features
+	}
+	seatsTotal := totalSeats
+	if seatsTotal == 0 && lic.SeatsTotal != 0 {
+		seatsTotal = lic.SeatsTotal
+	}
+	meta := &domain.ValidationMeta{
+		LicenseID:         lic.ID,
+		Status:            lic.Status,
+		Type:              lic.Type,
+		PlanID:            planID,
+		Plan:              planRef,
+		Product:           productRef,
+		ProductID:         productID,
+		ExpiresAt:         lic.ExpiresAt,
+		SeatsTotal:        &seatsTotal,
+		UnlimitedSeats:    seatsTotal == -1,
+		Trial:             lic.Trial.Enabled || lic.IsTrial,
+		GracePeriodEndsAt: lic.GracePeriodEndsAt(),
+		Features:          features,
+		Version:           lic.Version,
+		InGracePeriod:     lic.IsInGracePeriod(),
+	}
+	if seatsTotal == -1 {
+		meta.SeatsTotal = &seatsTotal
+	} else if remaining >= 0 && seatsTotal >= 0 {
+		meta.SeatsTotal = &seatsTotal
+	}
+	return meta
 }

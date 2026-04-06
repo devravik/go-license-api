@@ -64,10 +64,10 @@ func (t *Tenant) AllowsAllIPs() bool {
 type ActivationRecord struct {
 	ID string `json:"id"`
 
-	LicenseID int    `json:"license_id"`
+	LicenseID string `json:"license_id"`
 	TenantID  string `json:"tenant_id"`
 
-	MachineID string `json:"machine_id"`
+	ClientID string `json:"client_id"`
 	Hostname  string `json:"hostname"`
 
 	IsActive bool `json:"is_active"`
@@ -83,9 +83,9 @@ type ActivationRecord struct {
 
 // UsageRecord tracks consumption-based usage events.
 type UsageRecord struct {
-	ID int `json:"id"`
+	ID string `json:"id"`
 
-	LicenseID int    `json:"license_id"`
+	LicenseID string `json:"license_id"`
 	TenantID  string `json:"tenant_id"`
 
 	Units int `json:"units"`

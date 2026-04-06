@@ -6,19 +6,19 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	"github.com/devravik/go-license-api/internal/ports"
-	"github.com/google/uuid"
 )
 
 type ActivationService interface {
-	Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, int, error)
-	Deactivate(ctx context.Context, tenantID, key, machineID string) error
+	Activate(ctx context.Context, tenantID, key, clientID, hostname string) (*domain.ActivationRecord, int, int, error)
+	Deactivate(ctx context.Context, tenantID, key, clientID string) error
 	RecordUsage(ctx context.Context, tenantID, key string, units int) (totalUsed int, remaining *int, err error)
 }
 
 type ActivationLocker interface {
-	Lock(licenseID int)
-	Unlock(licenseID int)
+	Lock(licenseID string)
+	Unlock(licenseID string)
 }
 
 type ActivationLicenseStore interface {
@@ -53,7 +53,7 @@ func NewActivationService(
 	}
 }
 
-func (s *activationService) Activate(ctx context.Context, tenantID, key, machineID, hostname string) (*domain.ActivationRecord, int, int, error) {
+func (s *activationService) Activate(ctx context.Context, tenantID, key, clientID, hostname string) (*domain.ActivationRecord, int, int, error) {
 	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
 		return nil, 0, 0, err
@@ -67,18 +67,25 @@ func (s *activationService) Activate(ctx context.Context, tenantID, key, machine
 	if license.IsInGracePeriod() {
 		return nil, 0, 0, domain.ErrLicenseGracePeriod
 	}
+	if license.SeatsTotal != -1 && license.SeatsUsed >= license.SeatsTotal {
+		return nil, 0, 0, domain.ErrSeatLimitReached
+	}
 
 	s.locker.Lock(license.ID)
 	defer s.locker.Unlock(license.ID)
 
 	record := &domain.ActivationRecord{
-		ID:          uuid.New().String(),
 		TenantID:    tenantID,
-		MachineID:   machineID,
+		ClientID:    clientID,
 		Hostname:    hostname,
 		IsActive:    true,
 		ActivatedAt: time.Now(),
 	}
+	recordID, err := idgen.NewID("act")
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	record.ID = recordID
 
 	writeCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -98,19 +105,21 @@ func (s *activationService) Activate(ctx context.Context, tenantID, key, machine
 		ResourceID: key,
 		Outcome:    "success",
 		Meta: map[string]any{
-			"machine_id": machineID,
+			"client_id":  clientID,
 			"hostname":   hostname,
 		},
 	})
 
 	totalSeats := -1
-	if license.SeatCount != nil {
+	if license.SeatsTotal != 0 {
+		totalSeats = license.SeatsTotal
+	} else if license.SeatCount != nil {
 		totalSeats = *license.SeatCount
 	}
 	return record, remaining, totalSeats, nil
 }
 
-func (s *activationService) Deactivate(ctx context.Context, tenantID, key, machineID string) error {
+func (s *activationService) Deactivate(ctx context.Context, tenantID, key, clientID string) error {
 	license, err := s.resolveLicense(ctx, tenantID, key)
 	if err != nil {
 		return err
@@ -119,7 +128,7 @@ func (s *activationService) Deactivate(ctx context.Context, tenantID, key, machi
 	s.locker.Lock(license.ID)
 	defer s.locker.Unlock(license.ID)
 
-	if err := s.activations.ReleaseByMachine(ctx, tenantID, key, machineID); err != nil {
+	if err := s.activations.ReleaseByClient(ctx, tenantID, key, clientID); err != nil {
 		return err
 	}
 

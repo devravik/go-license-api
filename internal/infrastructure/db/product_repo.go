@@ -25,7 +25,7 @@ func (r *productRepo) FindByID(ctx context.Context, tenantID, productID string) 
 			id, tenant_id, code, name, version, is_active,
 			features, meta, created_at, updated_at
 		FROM products
-		WHERE tenant_id = $1 AND id = $2
+		WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
 		LIMIT 1
 	`
 	return r.scanOne(ctx, q, tenantID, productID)
@@ -37,7 +37,7 @@ func (r *productRepo) FindByCode(ctx context.Context, tenantID, code string) (*d
 			id, tenant_id, code, name, version, is_active,
 			features, meta, created_at, updated_at
 		FROM products
-		WHERE tenant_id = $1 AND code = $2
+		WHERE tenant_id = $1 AND code = $2 AND deleted_at IS NULL
 		LIMIT 1
 	`
 	return r.scanOne(ctx, q, tenantID, code)
@@ -49,7 +49,7 @@ func (r *productRepo) ListByTenant(ctx context.Context, tenantID string) ([]*dom
 			id, tenant_id, code, name, version, is_active,
 			features, meta, created_at, updated_at
 		FROM products
-		WHERE tenant_id = $1
+		WHERE tenant_id = $1 AND deleted_at IS NULL
 		ORDER BY code ASC
 	`
 
@@ -68,7 +68,7 @@ func (r *productRepo) ListUpdatedAfter(ctx context.Context, tenantID string, aft
 			id, tenant_id, code, name, version, is_active,
 			features, meta, created_at, updated_at
 		FROM products
-		WHERE tenant_id = $1 AND updated_at > $2
+		WHERE tenant_id = $1 AND updated_at > $2 AND deleted_at IS NULL
 		ORDER BY updated_at ASC
 	`
 
@@ -114,7 +114,7 @@ func (r *productRepo) SetActive(ctx context.Context, tenantID, productID string,
 	const q = `
 		UPDATE products
 		SET is_active = $3
-		WHERE tenant_id = $1 AND id = $2
+		WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
 	`
 	tag, err := r.db.Exec(ctx, q, tenantID, productID, isActive)
 	if err != nil {
@@ -128,8 +128,25 @@ func (r *productRepo) SetActive(ctx context.Context, tenantID, productID string,
 
 func (r *productRepo) Delete(ctx context.Context, tenantID, productID string) error {
 	const q = `
-		DELETE FROM products
-		WHERE tenant_id = $1 AND id = $2
+		UPDATE products
+		SET deleted_at = NOW()
+		WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+	`
+	tag, err := r.db.Exec(ctx, q, tenantID, productID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrProductNotFound
+	}
+	return nil
+}
+
+func (r *productRepo) Restore(ctx context.Context, tenantID, productID string) error {
+	const q = `
+		UPDATE products
+		SET deleted_at = NULL
+		WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NOT NULL
 	`
 	tag, err := r.db.Exec(ctx, q, tenantID, productID)
 	if err != nil {

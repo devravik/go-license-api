@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
-	"github.com/google/uuid"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,7 +27,12 @@ func (w *AuditWriter) Write(ctx context.Context, entry *domain.AuditEntry) {
 	}
 	id := entry.ID
 	if id == "" {
-		id = uuid.NewString()
+		var genErr error
+		id, genErr = idgen.NewID("aud")
+		if genErr != nil {
+			log.Printf("audit id generation failed: %v", genErr)
+			return
+		}
 	}
 	createdAt := entry.CreatedAt
 	if createdAt.IsZero() {
@@ -62,7 +67,12 @@ func (w *AuditWriter) WriteBatch(ctx context.Context, entries []*domain.AuditEnt
 		}
 		id := entry.ID
 		if id == "" {
-			id = uuid.NewString()
+			var genErr error
+			id, genErr = idgen.NewID("aud")
+			if genErr != nil {
+				log.Printf("audit id generation failed: %v", genErr)
+				continue
+			}
 		}
 		createdAt := entry.CreatedAt
 		if createdAt.IsZero() {

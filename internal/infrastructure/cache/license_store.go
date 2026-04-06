@@ -82,6 +82,8 @@ func (s *LicenseStore) Get(ctx context.Context, tenantID, key string) (*domain.L
 func (s *LicenseStore) Set(ctx context.Context, tenantID, key string, license *domain.License) {
 	ck := cacheKey(tenantID, key)
 	s.l1.Set(ctx, ck, &CacheEntry{Value: license}, s.ttlL1)
+	// Global index update (L1-only) using distinct namespace
+	s.l1.Set(ctx, "gk:"+key, &CacheEntry{Value: license}, s.ttlL1)
 	if s.l2 != nil {
 		s.l2.Set(ctx, ck, &CacheEntry{Value: license}, s.ttlL2)
 	}
@@ -91,6 +93,7 @@ func (s *LicenseStore) Set(ctx context.Context, tenantID, key string, license *d
 func (s *LicenseStore) Invalidate(ctx context.Context, tenantID, key string) error {
 	ck := cacheKey(tenantID, key)
 	s.l1.Invalidate(ctx, "", ck)
+	s.l1.Invalidate(ctx, "", "gk:"+key)
 	if s.l2 != nil {
 		s.l2.Invalidate(ctx, "", ck)
 		s.l2.Publish(ctx, "cache:invalidate", ck)
@@ -102,6 +105,7 @@ func (s *LicenseStore) Invalidate(ctx context.Context, tenantID, key string) err
 func (s *LicenseStore) InvalidateTenant(ctx context.Context, tenantID string) error {
 	prefix := redisPrefix + tenantID + ":"
 	s.l1.InvalidateAll(ctx, prefix)
+	// Best-effort: key-only index cannot be efficiently scoped; rely on TTL.
 	if s.l2 != nil {
 		if err := s.l2.InvalidateAll(ctx, prefix); err != nil {
 			return fmt.Errorf("L2 tenant invalidation partial: %w", err)
@@ -145,4 +149,23 @@ func (s *LicenseStore) WarmUp(ctx context.Context, repo domain.LicenseRepository
 		s.Set(ctx, lic.TenantID, lic.Key, &lic)
 	}
 	return nil
+}
+
+// GetByGlobalKey provides a license-key-only lookup for the public data plane.
+// It is cache-only and uses the L1 key index. Full miss => ErrLicenseNotFound.
+func (s *LicenseStore) GetByGlobalKey(ctx context.Context, key string) (*domain.License, error) {
+	if entry, ok := s.l1.Get(ctx, "gk:"+key); ok {
+		if entry.Negative {
+			return nil, domain.ErrLicenseNotFound
+		}
+		if lic, ok := entry.Value.(*domain.License); ok && lic != nil {
+			return lic, nil
+		}
+	}
+	// Do not consult L2 or DB here; public path must be cache-only.
+	// Negative-cache briefly to avoid hammering.
+	if s.l1.Len() < (s.l1.MaxEntries()*9)/10 {
+		s.l1.Set(ctx, "gk:"+key, &CacheEntry{Negative: true}, s.ttlNegative)
+	}
+	return nil, domain.ErrLicenseNotFound
 }

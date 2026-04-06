@@ -67,7 +67,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"product_code\": \"{{product}}\",\n  \"machine_id\": \"{{machineId}}\",\n  \"hostname\": \"{{hostname}}\"\n}"
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"product_code\": \"{{product}}\",\n  \"client_id\": \"{{clientId}}\",\n  \"hostname\": \"{{hostname}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/licenses/activate",
@@ -86,7 +86,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"client_id\": \"{{machineId}}\"\n}"
+              "raw": "{\n  \"license_key\": \"{{licenseKey}}\",\n  \"client_id\": \"{{clientId}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/licenses/deactivate",
@@ -232,7 +232,7 @@
     { "key": "adminKey", "value": "replace_me_admin" },
     { "key": "licenseKey", "value": "ABC-123" },
     { "key": "product", "value": "v-plugin" },
-    { "key": "machineId", "value": "machine-1" },
+    { "key": "clientId", "value": "client-1" },
     { "key": "hostname", "value": "host-1" },
     { "key": "activationId", "value": "" }
   ]

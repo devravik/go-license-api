@@ -479,30 +479,72 @@ components:
         key:
           type: string
           description: Deprecated alias for license_key
-        client_id:
+        product_id:
           type: string
-          description: Preferred field; alias 'machine_id' also accepted
-        machine_id:
-          type: string
-          description: Deprecated alias for client_id
-        product_code:
-          type: string
-          description: Preferred product code; alias 'product' also accepted
+          description: Preferred field; alias 'product' also accepted
         product:
           type: string
-          description: Deprecated alias for product_code
+          description: Deprecated alias for product_id
       required: [license_key]
     ValidateResponse:
       type: object
       properties:
         valid:
           type: boolean
-        reason:
+        license:
+          $ref: '#/components/schemas/ValidationMeta'
+        error:
+          $ref: '#/components/schemas/Error'
+      required: [valid]
+    ValidationMeta:
+      type: object
+      properties:
+        license_id:
           type: string
-        expiresAt:
+        status:
+          type: string
+        type:
+          type: string
+          enum: [plan, product]
+        plan_id:
+          type: string
+        plan:
+          $ref: '#/components/schemas/ValidationRef'
+        product:
+          $ref: '#/components/schemas/ValidationRef'
+        product_id:
+          type: string
+        expires_at:
           type: string
           format: date-time
-      required: [valid]
+          nullable: true
+        seats_total:
+          type: integer
+          nullable: true
+        unlimited_seats:
+          type: boolean
+        trial:
+          type: boolean
+        grace_period_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        features:
+          type: array
+          items:
+            type: string
+        version:
+          type: integer
+        in_grace_period:
+          type: boolean
+    ValidationRef:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required: [id]
     ActivationRequest:
       type: object
       properties:
@@ -514,10 +556,7 @@ components:
           description: Deprecated alias for license_key
         client_id:
           type: string
-          description: Preferred; alias 'machine_id' accepted
-        machine_id:
-          type: string
-          description: Deprecated alias for client_id
+          description: Client identifier
         hostname:
           type: string
       required: [license_key]

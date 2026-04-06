@@ -36,9 +36,9 @@ type TenantRepository interface {
 type ActivationRepository interface {
 	ActivateWithLock(ctx context.Context, tenantID, key string, record *ActivationRecord) (remaining int, err error)
 	Release(ctx context.Context, activationID string) error
-	ReleaseByMachine(ctx context.Context, tenantID, key, machineID string) error
-	CountActive(ctx context.Context, licenseID int) (int, error)
-	RecordUsage(ctx context.Context, licenseID, units int) (totalUsed int, limit *int, err error)
+	ReleaseByClient(ctx context.Context, tenantID, key, clientID string) error
+	CountActive(ctx context.Context, licenseID string) (int, error)
+	RecordUsage(ctx context.Context, licenseID string, units int) (totalUsed int, limit *int, err error)
 }
 
 // AuditWriter appends audit entries; never reads.
@@ -62,4 +62,14 @@ type ProductRepository interface {
 	Upsert(ctx context.Context, p *Product) error
 	SetActive(ctx context.Context, tenantID, productID string, isActive bool) error
 	Delete(ctx context.Context, tenantID, productID string) error
+	Restore(ctx context.Context, tenantID, productID string) error
+}
+
+type PlanRepository interface {
+	FindByID(ctx context.Context, tenantID, planID string) (*Plan, error)
+	ListByTenant(ctx context.Context, tenantID string) ([]*Plan, error)
+	Upsert(ctx context.Context, p *Plan) error
+	SetActive(ctx context.Context, tenantID, planID string, isActive bool) error
+	Delete(ctx context.Context, tenantID, planID string) error
+	Restore(ctx context.Context, tenantID, planID string) error
 }

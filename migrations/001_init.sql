@@ -71,19 +71,14 @@ FOR EACH ROW EXECUTE PROCEDURE set_updated_at_timestamp();
 
 -- Products: Optional product catalogue (must be created before licenses for FK).
 CREATE TABLE products (
-    id              TEXT        PRIMARY KEY,
+    id              TEXT        PRIMARY KEY CHECK (id LIKE 'prod_%'),
     tenant_id       TEXT        NOT NULL REFERENCES tenants(id),
-    code            TEXT        NOT NULL,   -- stable identifier used in API
     name            TEXT        NOT NULL,
-    version         TEXT,
+    features        JSONB       NOT NULL DEFAULT '[]',
     is_active       BOOLEAN     DEFAULT TRUE,
-    features        JSONB       DEFAULT '[]',
-    meta            JSONB       DEFAULT '{}',
-    max_activations INT         CHECK (max_activations > 0),
-    usage_limit     INT         CHECK (usage_limit > 0),
-    trial_days      INT         CHECK (trial_days >= 0),
     created_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
+    updated_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      TIMESTAMP
 );
 
 CREATE TRIGGER trg_products_set_updated_at
@@ -91,52 +86,80 @@ BEFORE UPDATE ON products
 FOR EACH ROW EXECUTE PROCEDURE set_updated_at_timestamp();
 
 -- Licenses: Issued to end-users by a tenant.
-CREATE TABLE licenses (
-    id                  SERIAL      PRIMARY KEY,
-    tenant_id           TEXT        NOT NULL REFERENCES tenants(id),
-    key                 TEXT        NOT NULL,
-    -- product_id is an optional loose reference to products.id.
-    -- No FK enforced: licenses may use a free-text product_id or the
-    -- product TEXT column independently without a catalogue entry.
-    product_id          TEXT,
-    product             TEXT,
-    status              TEXT        NOT NULL DEFAULT 'active'
-                            CHECK (status IN ('active','revoked','expired','suspended')),
-    plan                TEXT,
-    is_trial            BOOLEAN     DEFAULT FALSE,
-    trial_ends_at       TIMESTAMP,
-    expires_at          TIMESTAMP,
-    grace_period_days   INT         DEFAULT 0  CHECK (grace_period_days >= 0),
-    seat_count          INT         DEFAULT NULL CHECK (seat_count > 0),
-    max_activations     INT         DEFAULT NULL CHECK (max_activations > 0),
-    usage_limit         INT         DEFAULT NULL CHECK (usage_limit >= 0),
-    usage_used          INT         DEFAULT 0   CHECK (usage_used >= 0),
-    -- JSONB for features: consistent with products.features; flexible for flag objects.
-    features            JSONB       DEFAULT '[]',
-    meta                JSONB,
-    issued_at           TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    revoked_at          TIMESTAMP,
-    revoked_reason      TEXT,
-    last_validated_at   TIMESTAMP,
-    version             INT         DEFAULT 1,
-    created_at          TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    deleted_at          TIMESTAMP,
-    -- UNIQUE(tenant_id, key) creates an implicit B-tree index; no separate
-    -- idx_license_lookup is needed — PostgreSQL always uses this index for
-    -- WHERE tenant_id = $1 AND key = $2 lookups.
-    UNIQUE (tenant_id, key)
+CREATE TABLE plans (
+    id              TEXT        PRIMARY KEY CHECK (id LIKE 'plan_%'),
+    tenant_id       TEXT        NOT NULL REFERENCES tenants(id),
+    product_id      TEXT        REFERENCES products(id),
+    name            TEXT        NOT NULL,
+    features        JSONB       NOT NULL DEFAULT '[]',
+    limits          JSONB       NOT NULL DEFAULT '{"seats":-1}'::jsonb,
+    is_active       BOOLEAN     DEFAULT TRUE,
+    created_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      TIMESTAMP
 );
 
-CREATE TRIGGER trg_licenses_bump_version
+CREATE TABLE licenses (
+    id                      TEXT        PRIMARY KEY CHECK (id LIKE 'lic_%'),
+    tenant_id               TEXT        NOT NULL REFERENCES tenants(id),
+    type                    TEXT        NOT NULL CHECK (type IN ('plan','product')),
+    plan_id                 TEXT        REFERENCES plans(id),
+    product_id              TEXT        REFERENCES products(id),
+    key                     TEXT        NOT NULL,
+    status                  TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','revoked')),
+    expires_at              TIMESTAMP,
+    seats_total             INT         NOT NULL DEFAULT -1,
+    seats_used              INT         NOT NULL DEFAULT 0,
+    features                JSONB       NOT NULL DEFAULT '[]',
+    overrides_features_add  JSONB       NOT NULL DEFAULT '[]',
+    overrides_features_remove JSONB     NOT NULL DEFAULT '[]',
+    trial_enabled           BOOLEAN     NOT NULL DEFAULT FALSE,
+    trial_ends_at           TIMESTAMP,
+    trial_features          JSONB       NOT NULL DEFAULT '[]',
+    version                 INT         NOT NULL DEFAULT 1,
+    last_validated_at       TIMESTAMP,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    created_at              TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    deleted_at              TIMESTAMP,
+    UNIQUE (key),
+    CHECK (
+        (type = 'plan' AND plan_id IS NOT NULL AND product_id IS NULL)
+        OR
+        (type = 'product' AND product_id IS NOT NULL AND plan_id IS NULL)
+    ),
+    CHECK (type != 'product' OR trial_enabled = FALSE),
+    CHECK (seats_total >= -1),
+    CHECK (seats_total = -1 OR seats_used <= seats_total),
+    CHECK (trial_enabled = FALSE OR (trial_ends_at IS NOT NULL AND jsonb_array_length(trial_features) > 0)),
+    CHECK (jsonb_typeof(features) = 'array'),
+    CHECK (jsonb_typeof(overrides_features_add) = 'array'),
+    CHECK (jsonb_typeof(overrides_features_remove) = 'array'),
+    CHECK (jsonb_typeof(trial_features) = 'array'),
+    CHECK (
+        jsonb_array_length(features) = 0
+        OR
+        (jsonb_array_length(overrides_features_add) = 0 AND jsonb_array_length(overrides_features_remove) = 0)
+    )
+);
+
+CREATE TRIGGER trg_plans_set_updated_at
+BEFORE UPDATE ON plans
+FOR EACH ROW EXECUTE PROCEDURE set_updated_at_timestamp();
+
+CREATE TRIGGER trg_licenses_set_updated_at
+BEFORE UPDATE ON licenses
+FOR EACH ROW EXECUTE PROCEDURE set_updated_at_timestamp();
+
+CREATE TRIGGER trg_licenses_version
 BEFORE UPDATE ON licenses
 FOR EACH ROW EXECUTE PROCEDURE bump_license_version();
 
 -- Activations: Seat-based activation records.
 -- client_id is the unified, normalised identifier for where a license is used.
--- UUID type ensures valid UUID storage and 16-byte efficiency.
 CREATE TABLE activations (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    license_id      INT         NOT NULL REFERENCES licenses(id),
+    id              TEXT        PRIMARY KEY,
+    license_id      TEXT        NOT NULL REFERENCES licenses(id),
     tenant_id       TEXT        NOT NULL REFERENCES tenants(id),
     client_id       TEXT        NOT NULL,
     hostname        TEXT,
@@ -150,8 +173,8 @@ CREATE TABLE activations (
 
 -- Usage records: Consumption-based metered usage.
 CREATE TABLE usage_records (
-    id          SERIAL      PRIMARY KEY,
-    license_id  INT         NOT NULL REFERENCES licenses(id),
+    id          TEXT        PRIMARY KEY,
+    license_id  TEXT        NOT NULL REFERENCES licenses(id),
     tenant_id   TEXT        NOT NULL REFERENCES tenants(id),
     units       INT         NOT NULL CHECK (units > 0),
     source      TEXT,
@@ -162,7 +185,7 @@ CREATE TABLE usage_records (
 -- Daily rollup for efficient usage analytics queries.
 CREATE TABLE usage_daily (
     tenant_id   TEXT        NOT NULL REFERENCES tenants(id),
-    license_id  INT         NOT NULL REFERENCES licenses(id),
+    license_id  TEXT        NOT NULL REFERENCES licenses(id),
     date        DATE        NOT NULL,
     units       INT         NOT NULL CHECK (units >= 0),
     PRIMARY KEY (tenant_id, license_id, date)
@@ -237,10 +260,12 @@ CREATE        INDEX idx_tenant_old_key_hash     ON tenants (old_api_key_hash) WH
 
 -- Licenses
 -- Partial index for soft-delete: active-only queries skip deleted rows.
-CREATE        INDEX idx_license_active          ON licenses (tenant_id)           WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_license_key             ON licenses (key);
+CREATE        INDEX idx_license_active          ON licenses (tenant_id)           WHERE status = 'active' AND deleted_at IS NULL;
 CREATE        INDEX idx_license_expiry          ON licenses (expires_at)          WHERE deleted_at IS NULL;
-CREATE        INDEX idx_license_tenant_status_expiry
-              ON licenses (tenant_id, status, expires_at)                         WHERE deleted_at IS NULL;
+CREATE        INDEX idx_license_tenant_status_expiry ON licenses (tenant_id, status, expires_at) WHERE deleted_at IS NULL;
+CREATE        INDEX idx_license_plan_id         ON licenses (plan_id) WHERE plan_id IS NOT NULL AND deleted_at IS NULL;
+CREATE        INDEX idx_license_product_id      ON licenses (product_id) WHERE product_id IS NOT NULL AND deleted_at IS NULL;
 
 -- Activations
 -- Partial unique: prevents duplicate active client_id on the same license.
@@ -269,7 +294,8 @@ CREATE        INDEX idx_delivery_retry          ON webhook_deliveries (next_retr
 CREATE        INDEX idx_signing_key_tenant      ON tenant_signing_keys (tenant_id)    WHERE is_active = TRUE;
 
 -- Products
-CREATE        INDEX idx_products_tenant         ON products (tenant_id);
-CREATE UNIQUE INDEX uq_products_tenant_code     ON products (tenant_id, code);
+CREATE        INDEX idx_products_tenant         ON products (tenant_id) WHERE deleted_at IS NULL;
+CREATE        INDEX idx_plans_tenant            ON plans (tenant_id) WHERE deleted_at IS NULL;
+CREATE        INDEX idx_plans_product           ON plans (product_id) WHERE product_id IS NOT NULL AND deleted_at IS NULL;
 
 COMMIT;

@@ -26,7 +26,7 @@ func TestPool_ProcessesJobs(t *testing.T) {
 	val := &mockValidationService{
 		validate: func(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error) {
 			calls.Add(1)
-			return &domain.ValidationResult{Valid: true, Meta: &domain.ValidationMeta{Plan: "pro"}}, nil
+			return &domain.ValidationResult{Valid: true, Meta: &domain.ValidationMeta{Plan: &domain.ValidationRef{ID: "pro"}}}, nil
 		},
 	}
 

@@ -1,25 +1,30 @@
 package dto
 
+import "github.com/devravik/go-license-api/internal/domain"
+
 type ActivateRequest struct {
 	LicenseKey string `json:"license_key"`
 	Key        string `json:"key"`
 	ClientID   string `json:"client_id"`
-	MachineID  string `json:"machine_id"`
 	Hostname   string `json:"hostname"`
 }
 
 type ActivateResponse struct {
-	Success   bool   `json:"success,omitempty"`
-	Activated bool   `json:"activated"`
-	ClientID  string `json:"client_id,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
-	Timestamp string `json:"timestamp,omitempty"`
-	Seats     *struct {
-		Used      int `json:"used"`
-		Total     int `json:"total"`
-		Remaining int `json:"remaining"`
+	Success        bool   `json:"success,omitempty"`
+	Activated      bool   `json:"activated"`
+	ActivationID   string `json:"activation_id,omitempty"`
+	ClientID       string `json:"client_id,omitempty"`
+	SeatsRemaining *int   `json:"seats_remaining"`
+	UnlimitedSeats bool   `json:"unlimited_seats,omitempty"`
+	RequestID      string `json:"request_id,omitempty"`
+	Timestamp      string `json:"timestamp,omitempty"`
+	Seats          *struct {
+		Used      int  `json:"used"`
+		Total     int  `json:"total"`
+		Remaining *int `json:"remaining"`
 	} `json:"seats,omitempty"`
-	Error *APIError `json:"error,omitempty"`
+	License *domain.ValidationMeta `json:"license,omitempty"`
+	Error   *APIError              `json:"error,omitempty"`
 }
 
 type DeactivateRequest struct {
@@ -30,9 +35,9 @@ type DeactivateRequest struct {
 
 type DeactivateResponse struct {
 	Success     bool      `json:"success,omitempty"`
-	Deactivated bool   `json:"deactivated"`
-	RequestID   string `json:"request_id,omitempty"`
-	Timestamp   string `json:"timestamp,omitempty"`
+	Deactivated bool      `json:"deactivated"`
+	RequestID   string    `json:"request_id,omitempty"`
+	Timestamp   string    `json:"timestamp,omitempty"`
 	Error       *APIError `json:"error,omitempty"`
 }
 
@@ -45,15 +50,15 @@ type UsageRequest struct {
 }
 
 type UsageResponse struct {
-	Success  bool `json:"success,omitempty"`
-	Recorded bool   `json:"recorded"`
+	Success   bool   `json:"success,omitempty"`
+	Recorded  bool   `json:"recorded"`
 	RequestID string `json:"request_id,omitempty"`
 	Timestamp string `json:"timestamp,omitempty"`
 	Usage     *struct {
 		TotalUsed int  `json:"total_used"`
 		Remaining *int `json:"remaining,omitempty"`
 	} `json:"usage,omitempty"`
-	Error    *APIError `json:"error,omitempty"`
+	Error *APIError `json:"error,omitempty"`
 }
 
 func (r ActivateRequest) EffectiveLicenseKey() string {
@@ -64,10 +69,7 @@ func (r ActivateRequest) EffectiveLicenseKey() string {
 }
 
 func (r ActivateRequest) EffectiveClientID() string {
-	if r.ClientID != "" {
-		return r.ClientID
-	}
-	return r.MachineID
+	return r.ClientID
 }
 
 func (r DeactivateRequest) EffectiveLicenseKey() string {

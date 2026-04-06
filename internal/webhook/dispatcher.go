@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	crypto "github.com/devravik/go-license-api/internal/security"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -110,8 +110,12 @@ func (d *Dispatcher) Dispatch(_ context.Context, event, tenantID string, data an
 	if len(webhooks) == 0 {
 		return
 	}
+	payloadID, err := idgen.NewID("evt")
+	if err != nil {
+		return
+	}
 	payload := &EventPayload{
-		ID:         uuid.New().String(),
+		ID:         payloadID,
 		Event:      event,
 		Version:    "v1",
 		TenantID:   tenantID,

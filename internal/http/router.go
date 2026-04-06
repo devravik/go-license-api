@@ -11,6 +11,7 @@ import (
 	"github.com/devravik/go-license-api/internal/http/handlers"
 	licensehttp "github.com/devravik/go-license-api/internal/http/license"
 	"github.com/devravik/go-license-api/internal/http/middleware"
+	tenanthttp "github.com/devravik/go-license-api/internal/http/tenant"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	crypto "github.com/devravik/go-license-api/internal/security"
 	"github.com/devravik/go-license-api/internal/setup"
@@ -100,8 +101,11 @@ func SetupRoutesV2(
 	if failLimiter != nil {
 		licenseGroup.Use(failLimiter.Middleware())
 	}
-	licenseGroup.Use(middleware.TenantAuth(cfg.AppMode, nil, tenantStore))
-	licenseGroup.Use(rateLimiter.Middleware())
+	// Explicitly reject privileged headers on public data plane
+	licenseGroup.Use(middleware.RejectPrivilegedHeaders())
+	// Public rate limiter: per-license, per-IP fallback, and path-level buckets
+	publicRL := middleware.NewPublicLicenseRateLimiter()
+	licenseGroup.Use(publicRL.Middleware())
 	licenseGroup.Post("/validate", licenseHandler.Validate)
 	licenseGroup.Post("/activate", licenseHandler.Activate)
 	licenseGroup.Post("/deactivate", licenseHandler.Deactivate)
@@ -122,6 +126,13 @@ func SetupRoutesV2(
 	adminGroup.Use(middleware.AdminKeyGuard(cfg.AdminKey))
 	adminGroup.Get("/", adminHandler.Status)
 	adminGroup.Post("/tenants", adminHandler.CreateTenant)
+	adminGroup.Post("/licenses", adminHandler.CreateLicense)
+	adminGroup.Get("/tenants/:tenant_id/licenses/:key", adminHandler.GetLicense)
+	adminGroup.Patch("/tenants/:tenant_id/licenses/:key", adminHandler.UpdateLicense)
+	adminGroup.Post("/tenants/:tenant_id/licenses/:key/revoke", adminHandler.RevokeLicense)
+	// Backward-compatible legacy endpoints.
+	adminGroup.Get("/licenses/:key", adminHandler.GetLicense)
+	adminGroup.Patch("/licenses/:key", adminHandler.UpdateLicense)
 	adminGroup.Post("/licenses/revoke", adminHandler.RevokeLicense)
 	adminGroup.Post("/tenants/:id/suspend", adminHandler.SuspendTenant)
 	adminGroup.Post("/tenants/:id/reinstate", adminHandler.ReinstateTenant)
@@ -130,6 +141,15 @@ func SetupRoutesV2(
 	adminGroup.Post("/tenants/:id/webhooks", adminHandler.RegisterWebhook)
 	adminGroup.Post("/tenants/:id/rotate-key", adminHandler.RotateTenantKey)
 	adminGroup.Patch("/tenants/:id/limits", adminHandler.UpdateTenantLimits)
+	adminGroup.Post("/plans", adminHandler.CreatePlan)
+	adminGroup.Get("/plans", adminHandler.ListPlans)
+	adminGroup.Get("/plans/:id", adminHandler.GetPlan)
+	adminGroup.Patch("/plans/:id", adminHandler.UpdatePlan)
+	adminGroup.Patch("/tenants/:tenant_id/plans/:id/active", adminHandler.SetPlanActive)
+	adminGroup.Delete("/tenants/:tenant_id/plans/:id", adminHandler.DeletePlan)
+	adminGroup.Post("/tenants/:tenant_id/plans/:id/restore", adminHandler.RestorePlan)
+	adminGroup.Delete("/tenants/:tenant_id/products/:id", adminHandler.DeleteProduct)
+	adminGroup.Post("/tenants/:tenant_id/products/:id/restore", adminHandler.RestoreProduct)
 	adminGroup.Delete("/tenants/:id", adminHandler.DeleteTenant)
 	// Backward-compatible alias for older clients.
 	adminGroup.Post("/tenants/:id/rotate_key", adminHandler.RotateTenantKey)
@@ -139,6 +159,25 @@ func SetupRoutesV2(
 	// JWKS (Public) if deps are present.
 	if signerRegistry != nil {
 		app.Get("/.well-known/jwks.json", h.JWKS)
+	}
+
+	// Tenant Control Plane (Protected by TenantKeyGuard). No rate limit, no worker pool.
+	// Only register if we have a tenantStore to back lookups.
+	if tenantStore != nil {
+		tenantGroup := app.Group("/tenant")
+		tenantLookup := newTenantKeyLookupAdapter(tenantStore)
+		tenantGroup.Use(middleware.TenantKeyGuard(tenantLookup))
+		tenantHandler := tenanthttp.NewHandler(h)
+		// Licenses
+		tenantGroup.Post("/licenses", tenantHandler.CreateLicense)
+		tenantGroup.Get("/licenses/:key", tenantHandler.GetLicense)
+		tenantGroup.Patch("/licenses/:key", tenantHandler.UpdateLicense)
+		tenantGroup.Post("/licenses/:key/revoke", tenantHandler.RevokeLicense)
+		// Products
+		tenantGroup.Post("/products", tenantHandler.UpsertProduct)
+		tenantGroup.Get("/products/:id", tenantHandler.GetProduct)
+		tenantGroup.Patch("/products/:id", tenantHandler.UpdateProduct)
+		tenantGroup.Delete("/products/:id", tenantHandler.DeleteProduct)
 	}
 }
 

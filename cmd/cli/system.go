@@ -87,7 +87,6 @@ func newSystemConfigCmd() *cobra.Command {
 			jsonOut(map[string]any{
 				"app": map[string]any{
 					"name": appCfg.AppName,
-					"mode": appCfg.AppMode,
 					"env":  appCfg.AppEnv,
 					"port": appCfg.AppPort,
 				},

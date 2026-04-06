@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"github.com/devravik/go-license-api/internal/http/dto"
 	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/gofiber/fiber/v3"
 	"github.com/devravik/go-license-api/internal/audit"
@@ -18,7 +19,7 @@ func NewHandler(base *handlers.Handler) *Handler {
 
 func (h *Handler) Query(c fiber.Ctx) error {
 	if h.base.AuditQuery == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "audit_query_unavailable"})
+		return errJSON(c, fiber.StatusServiceUnavailable, "audit_query_unavailable")
 	}
 	params := audit.QueryParams{
 		TenantID: c.Query("tenant_id"),
@@ -41,11 +42,28 @@ func (h *Handler) Query(c fiber.Ctx) error {
 	}
 	entries, err := h.base.AuditQuery.Query(c.Context(), params)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "query_failed"})
+		return errJSON(c, fiber.StatusInternalServerError, "query_failed")
 	}
 	return c.JSON(fiber.Map{
 		"entries": entries,
 		"count":   len(entries),
 	})
+}
+
+func errJSON(c fiber.Ctx, status int, code string) error {
+	return c.Status(status).JSON(fiber.Map{
+		"error": dto.NewError(code, auditErrorMessage(code)),
+	})
+}
+
+func auditErrorMessage(code string) string {
+	switch code {
+	case "audit_query_unavailable":
+		return "Audit query unavailable"
+	case "query_failed":
+		return "Audit query failed"
+	default:
+		return code
+	}
 }
 

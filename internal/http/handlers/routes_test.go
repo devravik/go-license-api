@@ -71,6 +71,17 @@ func (m *mockAdminService) CreateTenant(_ context.Context, rps, burst int) (*dom
 		Status: "active",
 	}, "generated-key", nil
 }
+func (m *mockAdminService) ResolveTenantID(_ context.Context, tenantID string) (string, error) {
+	if tenantID == "" {
+		return "tenant-0001", nil
+	}
+	return tenantID, nil
+}
+func (m *mockAdminService) CreateLicense(_ context.Context, l *domain.License) error { return nil }
+func (m *mockAdminService) GetLicense(_ context.Context, tenantID, key string) (*domain.License, error) {
+	return &domain.License{TenantID: tenantID, Key: key}, nil
+}
+func (m *mockAdminService) UpdateLicense(_ context.Context, l *domain.License) error { return nil }
 func (m *mockAdminService) RevokeLicense(_ context.Context, tenantID, key string) error {
 	return m.revokeErr
 }
@@ -101,7 +112,27 @@ func (m *mockAdminService) UpsertProduct(_ context.Context, p *domain.Product) e
 func (m *mockAdminService) DeleteProduct(_ context.Context, tenantID, productID string) error {
 	return nil
 }
+func (m *mockAdminService) RestoreProduct(_ context.Context, tenantID, productID string) error {
+	return nil
+}
 func (m *mockAdminService) SetProductActive(_ context.Context, tenantID, productID string, active bool) error {
+	return nil
+}
+func (m *mockAdminService) CreatePlan(_ context.Context, p *domain.Plan) error { return nil }
+func (m *mockAdminService) UpdatePlan(_ context.Context, p *domain.Plan) error { return nil }
+func (m *mockAdminService) GetPlan(_ context.Context, tenantID, planID string) (*domain.Plan, error) {
+	return &domain.Plan{ID: planID, TenantID: tenantID, Name: "pro"}, nil
+}
+func (m *mockAdminService) ListPlans(_ context.Context, tenantID string) ([]*domain.Plan, error) {
+	return []*domain.Plan{}, nil
+}
+func (m *mockAdminService) DeletePlan(_ context.Context, tenantID, planID string) error {
+	return nil
+}
+func (m *mockAdminService) RestorePlan(_ context.Context, tenantID, planID string) error {
+	return nil
+}
+func (m *mockAdminService) SetPlanActive(_ context.Context, tenantID, planID string, active bool) error {
 	return nil
 }
 
@@ -111,7 +142,6 @@ func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminServic
 		AppName:           "Go License API",
 		AppPort:           "8080",
 		AdminKey:          "test-admin-key",
-		AppMode:           "multi",
 		AppEnv:            "test",
 		JSONEngine:        "std",
 		WorkerCount:       1,
@@ -185,10 +215,18 @@ func TestValidateRoute_RequiresTenantAPIKey(t *testing.T) {
 }
 
 func TestValidateRoute_Success(t *testing.T) {
+	seats := -1
 	val := &mockValidationService{
 		result: &domain.ValidationResult{
 			Valid: true,
-			Meta:  &domain.ValidationMeta{Plan: "pro"},
+			Meta: &domain.ValidationMeta{
+				Type:           "plan",
+				PlanID:         "plan_123",
+				Plan:           &domain.ValidationRef{ID: "pro", Name: "Pro"},
+				ProductID:      "prod_123",
+				SeatsTotal:     &seats,
+				UnlimitedSeats: true,
+			},
 		},
 	}
 	app := newTestApp(t, val, &mockAdminService{})
@@ -204,6 +242,13 @@ func TestValidateRoute_Success(t *testing.T) {
 	}
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var out dto.LicenseValidationResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if out.License == nil || out.License.Type != "plan" || out.License.PlanID != "plan_123" || out.License.ProductID != "prod_123" || !out.License.UnlimitedSeats {
+		t.Fatalf("expected validation meta with type/product_id/unlimited_seats, got %+v", out.License)
 	}
 	if val.lastTenantID != "tenant-0001" || val.lastAPIKey != security.HashAPIKey("0123456789abcdef") || val.lastKey != "abc-123" || val.lastProd != "pro" {
 		t.Fatalf("validation service called with unexpected args: %+v", val)
@@ -364,7 +409,6 @@ func TestValidateRoute_Timeout504(t *testing.T) {
 		AppName:           "Go License API",
 		AppPort:           "8080",
 		AdminKey:          "test-admin-key",
-		AppMode:           "multi",
 		AppEnv:            "test",
 		JSONEngine:        "std",
 		WorkerCount:       1,
@@ -397,7 +441,6 @@ func TestValidateRoute_BypassesPool(t *testing.T) {
 		AppName:           "Go License API",
 		AppPort:           "8080",
 		AdminKey:          "test-admin-key",
-		AppMode:           "multi",
 		AppEnv:            "test",
 		JSONEngine:        "std",
 		WorkerCount:       0,
@@ -408,7 +451,7 @@ func TestValidateRoute_BypassesPool(t *testing.T) {
 		AdminAllowedCIDRs: nil,
 	}
 	val := &mockValidationService{
-		result: &domain.ValidationResult{Valid: true, Meta: &domain.ValidationMeta{Plan: "pro"}},
+		result: &domain.ValidationResult{Valid: true, Meta: &domain.ValidationMeta{Plan: &domain.ValidationRef{ID: "pro"}}},
 	}
 	admin := &mockAdminService{}
 	app := fiber.New()

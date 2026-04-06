@@ -14,17 +14,18 @@ func NewActivationLock() *ActivationLock {
 	return &ActivationLock{}
 }
 
-func (al *ActivationLock) shard(licenseID int) int {
-	if licenseID < 0 {
-		licenseID = -licenseID
+func (al *ActivationLock) shard(licenseID string) int {
+	var sum uint32
+	for i := 0; i < len(licenseID); i++ {
+		sum = sum*33 + uint32(licenseID[i])
 	}
-	return licenseID % shardCount
+	return int(sum % shardCount)
 }
 
-func (al *ActivationLock) Lock(licenseID int) {
+func (al *ActivationLock) Lock(licenseID string) {
 	al.shards[al.shard(licenseID)].Lock()
 }
 
-func (al *ActivationLock) Unlock(licenseID int) {
+func (al *ActivationLock) Unlock(licenseID string) {
 	al.shards[al.shard(licenseID)].Unlock()
 }

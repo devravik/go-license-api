@@ -26,7 +26,6 @@ This guide will help you get the Go License API up and running on your local mac
     ```env
     ADMIN_API_KEY=your-secret-admin-key
     PORT=8080
-    APP_MODE=multi
     ```
     Common operational settings (optional; see `internal/setup/config.go`):
     ```env
@@ -58,7 +57,6 @@ Configuration is centralized in `internal/setup/config.go`. The server requires 
 ### General Settings
 - `APP_NAME`: Name of the application.
 - `PORT` (or `APP_PORT` fallback): Port on which the server will run (default: `3000`).
-- `APP_MODE`: `single` for single-tenant or `multi` for multi-tenant deployment.
 - `ADMIN_API_KEY`: Secret key required for administrative operations via the `X-Admin-Key` header.
 
 ### Timeouts & Workers
@@ -102,7 +100,7 @@ curl http://localhost:8080/health
 
 ### Validating a License
 
-In `multi` tenant mode, provide the API key via header `X-API-Key`:
+Provide the API key via header `X-API-Key`:
 
 ```bash
 curl -X POST http://localhost:8080/licenses/validate \

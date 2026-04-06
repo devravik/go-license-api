@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/devravik/go-license-api/internal/domain"
-	"github.com/google/uuid"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	"github.com/spf13/cobra"
 )
 
@@ -42,13 +42,17 @@ func newProductCreateCmd() *cobra.Command {
 				ver = &v
 			}
 			p := &domain.Product{
-				ID:       uuid.New().String(),
 				TenantID: tenant,
 				Code:     code,
 				Name:     name,
 				Version:  ver,
 				IsActive: true,
 			}
+			productID, err := idgen.NewID("prod")
+			if err != nil {
+				return jsonErr("product_id_generation_failed", err)
+			}
+			p.ID = productID
 			if err := appContainer.Deps.Services.Repo.Products.Upsert(ctx, p); err != nil {
 				return jsonErr("product_upsert_failed", err)
 			}
@@ -79,7 +83,11 @@ func newProductUpdateCmd() *cobra.Command {
 			if existing != nil {
 				id = existing.ID
 			} else {
-				id = uuid.New().String()
+				genID, genErr := idgen.NewID("prod")
+				if genErr != nil {
+					return jsonErr("product_id_generation_failed", genErr)
+				}
+				id = genID
 			}
 			var ver *string
 			if version != "" {

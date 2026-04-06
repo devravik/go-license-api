@@ -10,6 +10,7 @@ import (
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	idb "github.com/devravik/go-license-api/internal/infrastructure/db"
 	ievents "github.com/devravik/go-license-api/internal/infrastructure/events"
+	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	ilock "github.com/devravik/go-license-api/internal/infrastructure/lock"
 	"github.com/devravik/go-license-api/internal/ports"
 	"github.com/devravik/go-license-api/internal/setup"
@@ -45,6 +46,7 @@ type bizFacade struct {
 
 func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	appCfg := setup.Load()
+	idgen.ConfigureLength(appCfg.NanoIDLength)
 	cacheCfg := setup.LoadCacheConfig()
 	dbCfg := setup.LoadDatabaseConfig()
 
@@ -62,7 +64,11 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	licenseRepo := idb.NewLicenseRepo(pool)
 	tenantRepo := idb.NewTenantRepo(pool)
 	productRepo := idb.NewProductRepo(pool)
+	planRepo := idb.NewPlanRepo(pool)
 	activationRepo := idb.NewActivationRepo(pool)
+	if err := app.EnsureSystemTenant(context.Background(), tenantRepo); err != nil {
+		return nil, err
+	}
 
 	licenseL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
 	tenantL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
@@ -78,10 +84,12 @@ func initDeps(ctx context.Context, cfg *appConfig) (*deps, error) {
 	tenantStore := cache.NewTenantStore(tenantL1, l2, cacheCfg.TenantTTL, cacheCfg.TenantTTLNegative)
 	productL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
 	productStore := cache.NewProductStore(productL1, l2, cacheCfg.ProductTTL, cacheCfg.ProductTTLNegative)
+	planL1, _ := cache.NewL1Cache(cacheCfg.L1MaxEntries)
+	planStore := cache.NewPlanStore(planL1, l2, cacheCfg.PlanTTL, cacheCfg.PlanTTLNegative)
 
 	rl := middleware.NewRateLimiter()
 	auditor := idb.NewAuditWriter(pool)
-	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, licenseStore, tenantStore, productStore, rl, auditor)
+	adminSvc := app.NewAdminService(licenseRepo, tenantRepo, productRepo, planRepo, licenseStore, tenantStore, productStore, planStore, rl, auditor)
 	valSvc := app.NewValidationService(tenantStore, licenseStore, licenseRepo, licenseStore, nil, appCfg.MinLicenseKeyLen)
 	actLock := ilock.NewActivationLock()
 	actSvc := app.NewActivationService(licenseStore, licenseRepo, licenseStore, activationRepo, auditor, actLock)

@@ -14,7 +14,6 @@ type Config struct {
 	AppName            string
 	AppPort            string
 	AdminKey           string
-	AppMode            string
 	AppEnv             string
 	JSONEngine         string
 	SigningKeyPath     string
@@ -33,6 +32,7 @@ type Config struct {
 	ShutdownTimeout    time.Duration
 	AuditFlushTimeout  time.Duration
 	WorkerDrainTimeout time.Duration
+	NanoIDLength       int
 }
 
 func Load() *Config {
@@ -45,7 +45,6 @@ func Load() *Config {
 		// Prefer conventional PORT, fall back to legacy APP_PORT
 		AppPort:  getEnv("PORT", getEnv("APP_PORT", "3000")),
 		AdminKey: getEnv("ADMIN_API_KEY", ""),
-		AppMode:  getEnv("APP_MODE", "multi"),
 		// Use standard "development" instead of "develop"
 		AppEnv:             getEnv("APP_ENV", "development"),
 		JSONEngine:         getEnv("JSON_ENGINE", "std"),
@@ -65,6 +64,7 @@ func Load() *Config {
 		ShutdownTimeout:    time.Duration(getEnvInt("SHUTDOWN_TIMEOUT", 30)) * time.Second,
 		AuditFlushTimeout:  time.Duration(getEnvInt("AUDIT_FLUSH_TIMEOUT", 5)) * time.Second,
 		WorkerDrainTimeout: time.Duration(getEnvInt("WORKER_DRAIN_TIMEOUT", 0)) * time.Second,
+		NanoIDLength:       getEnvInt("NANOID_LENGTH", 12),
 	}
 	if cfg.WorkerTimeout > cfg.ValidationTimeout {
 		cfg.WorkerTimeout = cfg.ValidationTimeout
@@ -77,6 +77,9 @@ func Load() *Config {
 	}
 	if cfg.AuditQueueSize < cfg.WorkerCount*100 {
 		cfg.AuditQueueSize = cfg.WorkerCount * 100
+	}
+	if cfg.NanoIDLength != 16 {
+		cfg.NanoIDLength = 12
 	}
 	if strings.TrimSpace(cfg.AdminKey) == "" {
 		log.Fatal("ADMIN_API_KEY is required")

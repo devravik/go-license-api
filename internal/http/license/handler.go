@@ -2,6 +2,7 @@ package license
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http/dto"
 	"github.com/devravik/go-license-api/internal/http/handlers"
+	security "github.com/devravik/go-license-api/internal/security"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -36,8 +38,6 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 	}
 
 	licenseKey := req.EffectiveLicenseKey()
-	// Optional: client identifier for domain/device-aware validation policies (future use).
-	_ = normalizeClientID(req.EffectiveClientID())
 	if licenseKey == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(dto.LicenseValidationResponse{
 			Success: false,
@@ -46,43 +46,136 @@ func (h *Handler) Validate(c fiber.Ctx) error {
 		})
 	}
 
-	apiKey, _ := c.Locals("api_key").(string)
-	tenantID, _ := c.Locals("tenant_id").(string)
-
-	// Call validation service directly — validation is pure in-memory (L1/L2 cache
-	// lookup + business rules), so routing through the worker pool only adds channel
-	// hops and goroutine scheduling overhead. Fiber/fasthttp already manages
-	// concurrency; the worker pool remains available for future I/O-bound tasks.
+	// Public data plane: cache-only lookup by global license key.
 	ctx, cancel := context.WithTimeout(c.Context(), h.base.Cfg.ValidationTimeout)
 	defer cancel()
-
-	result, err := h.base.ValidationService.Validate(ctx, tenantID, apiKey, licenseKey, req.EffectiveProductCode())
-	if err != nil {
-		if ctx.Err() != nil {
-			return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{
+	if h.base.LicenseStore == nil {
+		tenantID := strings.TrimSpace(c.Get("X-Tenant-ID"))
+		apiKey := strings.TrimSpace(c.Get("X-API-Key"))
+		if tenantID == "" || apiKey == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(dto.LicenseValidationResponse{
 				Success: false,
 				Valid:   false,
-				Error:   dto.NewError("validation_timeout", "Validation timeout"),
+				Error:   dto.NewError("unauthorized", "Tenant credentials required"),
 			})
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{
-			Success: false,
-			Valid:   false,
-			Error:   dto.NewError("internal_validation_error", "Internal validation error"),
+		result, err := h.base.ValidationService.Validate(ctx, tenantID, security.HashAPIKey(apiKey), licenseKey, req.EffectiveProductID())
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return c.Status(fiber.StatusGatewayTimeout).JSON(dto.LicenseValidationResponse{Success: false, Valid: false, Error: dto.NewError("timeout", "Validation timeout")})
+			}
+			return c.Status(fiber.StatusInternalServerError).JSON(dto.LicenseValidationResponse{Success: false, Valid: false, Error: dto.NewError("internal_error", "Internal error")})
+		}
+		if !result.Valid {
+			return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{Success: false, Valid: false, Error: validationError(result.Error)})
+		}
+		return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+			Success: true,
+			Valid:   true,
+			License: result.Meta,
 		})
 	}
-	// Fast-path: most successful validations have no extra metadata.
-	if result.Valid && result.Meta == nil && result.Error == "" {
+	lic, err := h.base.LicenseStore.GetByGlobalKey(ctx, licenseKey)
+	if err != nil || lic == nil {
+		return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+			Success:   false,
+			Valid:     false,
+			RequestID: requestID(c),
+			Timestamp: nowISO(),
+			Error:     dto.NewError("license_not_found", "License not found"),
+		})
+	}
+	productID := req.EffectiveProductID()
+	if productID != "" {
+		if lic.ProductID != nil && *lic.ProductID != "" && *lic.ProductID != productID {
+			return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+				Success:   false,
+				Valid:     false,
+				RequestID: requestID(c),
+				Timestamp: nowISO(),
+				Error:     dto.NewError("invalid_product", "Invalid product"),
+			})
+		}
+		if lic.Product != "" && lic.Product != productID {
+			return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+				Success:   false,
+				Valid:     false,
+				RequestID: requestID(c),
+				Timestamp: nowISO(),
+				Error:     dto.NewError("invalid_product", "Invalid product"),
+			})
+		}
+	}
+	if lic.IsRevoked() {
+		return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+			Success:   false,
+			Valid:     false,
+			RequestID: requestID(c),
+			Timestamp: nowISO(),
+			Error:     dto.NewError("license_revoked", "License revoked"),
+		})
+	}
+	inGrace := lic.IsInGracePeriod()
+	if lic.IsExpired() && !inGrace {
+		return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
+			Success:   false,
+			Valid:     false,
+			RequestID: requestID(c),
+			Timestamp: nowISO(),
+			Error:     dto.NewError("license_expired", "License expired"),
+		})
+	}
+	// Success
+	var planRef *domain.ValidationRef
+	planID := ""
+	if lic.PlanID != nil && *lic.PlanID != "" {
+		planID = *lic.PlanID
+		planRef = &domain.ValidationRef{ID: *lic.PlanID}
+	} else if lic.Plan != "" {
+		planID = lic.Plan
+		planRef = &domain.ValidationRef{ID: lic.Plan, Name: lic.Plan}
+	}
+	var productRef *domain.ValidationRef
+	productRespID := ""
+	if lic.ProductID != nil {
+		productRespID = *lic.ProductID
+		productRef = &domain.ValidationRef{ID: *lic.ProductID}
+	} else if lic.Product != "" {
+		productRespID = lic.Product
+		productRef = &domain.ValidationRef{ID: lic.Product, Name: lic.Product}
+	}
+	seatsTotal := lic.SeatsTotal
+	meta := &domain.ValidationMeta{
+		LicenseID:         lic.ID,
+		Status:            lic.Status,
+		Type:              lic.Type,
+		PlanID:            planID,
+		Plan:              planRef,
+		Product:           productRef,
+		ProductID:         productRespID,
+		ExpiresAt:         lic.ExpiresAt,
+		SeatsTotal:        &seatsTotal,
+		UnlimitedSeats:    seatsTotal == -1,
+		Trial:             lic.IsTrial,
+		GracePeriodEndsAt: lic.GracePeriodEndsAt(),
+		Features:          lic.FinalFeatures,
+		Version:           lic.Version,
+		InGracePeriod:     inGrace,
+	}
+	if len(meta.Features) == 0 {
+		meta.Features = lic.Features
+	}
+	// Fast path for no meta
+	if meta.Plan == nil && meta.Product == nil && meta.ExpiresAt == nil && len(meta.Features) == 0 && meta.SeatsTotal == nil && !meta.Trial && meta.GracePeriodEndsAt == nil {
 		c.Type("json")
 		return c.Status(fiber.StatusOK).Send(validationRespValidTrue)
 	}
 	return c.Status(fiber.StatusOK).JSON(dto.LicenseValidationResponse{
-		Success:   result.Valid,
-		Valid:     result.Valid,
-		License:   result.Meta,
+		Success:   true,
+		Valid:     true,
+		License:   meta,
 		RequestID: requestID(c),
 		Timestamp: nowISO(),
-		Error:     validationError(result.Error),
 	})
 }
 
@@ -150,7 +243,6 @@ func (h *Handler) Usage(c fiber.Ctx) error {
 			Error:     dto.NewError("usage_not_enabled", "Usage recording is not enabled"),
 		})
 	}
-	tenantID, _ := c.Locals("tenant_id").(string)
 	var req dto.UsageRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(dto.UsageResponse{
@@ -181,6 +273,26 @@ func (h *Handler) Usage(c fiber.Ctx) error {
 			Error:     dto.NewError("invalid_key", "Invalid license key"),
 		})
 	}
+	if h.base.LicenseStore == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(dto.UsageResponse{
+			Success:   false,
+			Recorded:  false,
+			RequestID: requestID(c),
+			Timestamp: nowISO(),
+			Error:     dto.NewError("cache_unavailable", "License cache unavailable"),
+		})
+	}
+	lic, _ := h.base.LicenseStore.GetByGlobalKey(c.Context(), licenseKey)
+	if lic == nil {
+		return c.Status(fiber.StatusNotFound).JSON(dto.UsageResponse{
+			Success:   false,
+			Recorded:  false,
+			RequestID: requestID(c),
+			Timestamp: nowISO(),
+			Error:     dto.NewError("license_not_found", "License not found"),
+		})
+	}
+	tenantID := lic.TenantID
 	if req.Units <= 0 || req.Units > 1_000_000 {
 		return c.Status(fiber.StatusBadRequest).JSON(dto.UsageResponse{
 			Success:   false,
