@@ -189,6 +189,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/JWKS'
   /admin:
+    get:
+      summary: Admin status
+      operationId: getAdminStatus
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: OK
   /admin/revocations:
     get:
       summary: List license revocations
@@ -225,14 +233,6 @@ paths:
                         reason: { type: string }
                   count:
                     type: integer
-    get:
-      summary: Admin status
-      operationId: getAdminStatus
-      security:
-        - AdminKey: []
-      responses:
-        '200':
-          description: OK
   /admin/tenants:
     post:
       summary: Create tenant
@@ -519,23 +519,18 @@ components:
           $ref: '#/components/schemas/ValidationRef'
         product:
           $ref: '#/components/schemas/ValidationRef'
-          nullable: true
         product_id:
           type: string
-          nullable: true
         not_before:
           type: string
           format: date-time
-          nullable: true
           description: License is invalid before this time. Clients SHOULD allow ±5 minutes clock skew.
         expires_at:
           type: string
           format: date-time
-          nullable: true
           description: License expiry timestamp. Clients SHOULD allow ±5 minutes clock skew.
         seats_total:
           type: integer
-          nullable: true
         unlimited_seats:
           type: boolean
         trial:
@@ -543,7 +538,6 @@ components:
         grace_period_ends_at:
           type: string
           format: date-time
-          nullable: true
           description: Set when grace-period information is available. For `license_in_grace_period`, this is non-null.
         features:
           type: array
