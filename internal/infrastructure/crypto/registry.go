@@ -75,4 +75,3 @@ func signerToJWK(s *ed25519Signer) JWKEntry {
 		Alg:    "EdDSA",
 	}
 }
-

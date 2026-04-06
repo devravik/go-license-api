@@ -8,8 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -221,4 +221,3 @@ func sign(payload, secret []byte) string {
 	mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
 }
-

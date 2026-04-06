@@ -1,8 +1,8 @@
 package tenant
 
 import (
-	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/devravik/go-license-api/internal/http/dto"
+	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -54,4 +54,3 @@ func tenantErrorMessage(code string) string {
 	}
 	return code
 }
-

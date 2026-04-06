@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/ports"
 )
+
+const validationClockSkew = 5 * time.Minute
 
 type ValidationService interface {
 	Validate(ctx context.Context, tenantID, apiKey, key, product string) (*domain.ValidationResult, error)
@@ -72,6 +75,14 @@ func (s *validationService) Validate(ctx context.Context, tenantID, apiKey, key,
 			return &domain.ValidationResult{Valid: false, Error: "invalid_product"}, nil
 		}
 	}
+	if lic.NotBefore != nil {
+		// Allow small skew tolerance to reduce false negatives on offline/unsynced clocks.
+		earliestValid := lic.NotBefore.Add(-validationClockSkew)
+		if time.Now().Before(earliestValid) {
+			s.auditOutcome(ctx, tenantID, key, "failure", domain.EventLicenseFailed)
+			return &domain.ValidationResult{Valid: false, Error: "license_not_active"}, nil
+		}
+	}
 	gracePeriodEndsAt := lic.GracePeriodEndsAt()
 	inGrace := lic.IsInGracePeriod()
 	expired := lic.IsExpired()
@@ -113,6 +124,7 @@ func (s *validationService) Validate(ctx context.Context, tenantID, apiKey, key,
 			Plan:              planRef,
 			Product:           productRef,
 			ProductID:         productID,
+			NotBefore:         lic.NotBefore,
 			ExpiresAt:         lic.ExpiresAt,
 			SeatsTotal:        &seats,
 			UnlimitedSeats:    seats == -1,

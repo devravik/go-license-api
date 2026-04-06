@@ -107,6 +107,58 @@ func TestValidationService_ExpiredLicense(t *testing.T) {
 	}
 }
 
+func TestValidationService_NotYetActiveLicense(t *testing.T) {
+	notBefore := time.Now().Add(10 * time.Minute)
+	lic := &domain.License{
+		TenantID:  "t1",
+		Status:    "active",
+		Product:   "pro",
+		NotBefore: &notBefore,
+	}
+	svc := NewValidationService(
+		&testTenantStore{tenant: activeTenant()},
+		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
+		nil,
+		nil,
+		nil,
+		8,
+	)
+
+	got, err := svc.Validate(context.Background(), "t1", "tenant-key", "abc-12345", "pro")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Valid || got.Error != "license_not_active" {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+}
+
+func TestValidationService_NotBeforeWithinClockSkew(t *testing.T) {
+	notBefore := time.Now().Add(4 * time.Minute)
+	lic := &domain.License{
+		TenantID:  "t1",
+		Status:    "active",
+		Product:   "pro",
+		NotBefore: &notBefore,
+	}
+	svc := NewValidationService(
+		&testTenantStore{tenant: activeTenant()},
+		&testLicenseStore{byTenant: map[string]*domain.License{"t1": lic}},
+		nil,
+		nil,
+		nil,
+		8,
+	)
+
+	got, err := svc.Validate(context.Background(), "t1", "tenant-key", "abc-12345", "pro")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.Valid {
+		t.Fatalf("expected valid result within skew window: %+v", got)
+	}
+}
+
 func TestValidationService_GracePeriodLicense(t *testing.T) {
 	inGrace := time.Now().Add(-2 * time.Hour)
 	lic := &domain.License{

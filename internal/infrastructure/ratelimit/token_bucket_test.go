@@ -67,4 +67,3 @@ func TestBucket_CapsMaxBurst(t *testing.T) {
 		t.Fatal("expected reject after capped tokens are exhausted")
 	}
 }
-

@@ -21,6 +21,29 @@ func NewActivationRepo(db *pgxpool.Pool) domain.ActivationRepository {
 	return &activationRepo{db: db}
 }
 
+// FindActiveByClient returns the active activation record for a given tenant, license key and client_id, if any.
+func (r *activationRepo) FindActiveByClient(ctx context.Context, tenantID, key, clientID string) (*domain.ActivationRecord, error) {
+	const q = `
+		SELECT a.id, a.license_id, a.tenant_id, a.client_id, a.hostname, a.is_active, a.activated_at, a.released_at, a.ip, a.user_agent
+		FROM activations a
+		JOIN licenses l ON l.id = a.license_id
+		WHERE l.tenant_id = $1 AND l.key = $2 AND a.client_id = $3 AND a.is_active = TRUE AND l.deleted_at IS NULL
+		LIMIT 1
+	`
+	var rec domain.ActivationRecord
+	var releasedAt *time.Time
+	if err := r.db.QueryRow(ctx, q, tenantID, key, clientID).Scan(
+		&rec.ID, &rec.LicenseID, &rec.TenantID, &rec.ClientID, &rec.Hostname, &rec.IsActive, &rec.ActivatedAt, &releasedAt, &rec.IP, &rec.UserAgent,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrLicenseNotFound
+		}
+		return nil, err
+	}
+	rec.ReleasedAt = releasedAt
+	return &rec, nil
+}
+
 func (r *activationRepo) ActivateWithLock(ctx context.Context, tenantID, key string, record *domain.ActivationRecord) (remaining int, err error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {

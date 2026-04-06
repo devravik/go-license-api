@@ -40,4 +40,3 @@ func TestAdminKeyGuard_AcceptsValidKey(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 }
-

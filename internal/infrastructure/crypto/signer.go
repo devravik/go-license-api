@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 
@@ -23,8 +25,17 @@ type LicensePayload struct {
 	IssuedAt   time.Time `json:"issued_at"`
 	Seats      int       `json:"seats"`
 	Features   []string  `json:"features"`
-	Kid        string    `json:"kid"`
-	Issuer     string    `json:"issuer"`
+	// MaxOfflineDuration optionally limits how long a client may rely on this
+	// payload without revalidating online (in seconds). 0 means no limit.
+	MaxOfflineDuration int    `json:"max_offline_duration,omitempty"`
+	ActivationID       string `json:"activation_id,omitempty"`
+	ClientID           string `json:"client_id,omitempty"`
+	RevocationID       string `json:"revocation_id,omitempty"`
+	BindingRequired    bool   `json:"binding_required,omitempty"`
+	JTI                string `json:"jti,omitempty"`
+	SchemaVersion      int    `json:"schema_version,omitempty"`
+	Kid                string `json:"kid"`
+	Issuer             string `json:"issuer"`
 }
 
 // SignedLicense is a detached-signature envelope.
@@ -71,11 +82,65 @@ func (s *ed25519Signer) Sign(_ context.Context, license *domain.License) ([]byte
 		Kid:        s.kid,
 		Issuer:     s.issuer,
 	}
+	if license.NotBefore != nil {
+		payload.NotBefore = *license.NotBefore
+	}
 	if license.ExpiresAt != nil {
 		payload.ExpiresAt = *license.ExpiresAt
 	}
 	if license.SeatCount != nil {
 		payload.Seats = *license.SeatCount
+	}
+	// Best-effort extraction from metadata: {"max_offline_duration": 86400}
+	if license.Metadata != nil {
+		if v, ok := license.Metadata["max_offline_duration"]; ok {
+			switch t := v.(type) {
+			case int:
+				if t > 0 {
+					payload.MaxOfflineDuration = t
+				}
+			case float64:
+				if t > 0 {
+					payload.MaxOfflineDuration = int(t)
+				}
+			}
+		}
+		if v, ok := license.Metadata["_activation_id"]; ok {
+			if s, ok2 := v.(string); ok2 && s != "" {
+				payload.ActivationID = s
+			}
+		}
+		if v, ok := license.Metadata["_client_id"]; ok {
+			if s, ok2 := v.(string); ok2 && s != "" {
+				payload.ClientID = s
+			}
+		}
+		if v, ok := license.Metadata["_activation_id"]; ok {
+			if s, ok2 := v.(string); ok2 && s != "" {
+				payload.ActivationID = s
+			}
+		}
+		if v, ok := license.Metadata["_client_id"]; ok {
+			if s, ok2 := v.(string); ok2 && s != "" {
+				payload.ClientID = s
+			}
+		}
+		if v, ok := license.Metadata["binding_required"]; ok {
+			if b, ok2 := v.(bool); ok2 {
+				payload.BindingRequired = b
+			}
+		}
+	}
+	// Include stable per-license revocation identifier if available.
+	if license.RevocationID != "" {
+		payload.RevocationID = license.RevocationID
+	}
+	// Set schema version for forward-compat clients.
+	payload.SchemaVersion = 1
+	// Generate per-issuance JTI
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		payload.JTI = hex.EncodeToString(buf[:])
 	}
 
 	data, err := marshalStableJSON(payload)
@@ -94,8 +159,8 @@ func (s *ed25519Signer) Sign(_ context.Context, license *domain.License) ([]byte
 }
 
 func (s *ed25519Signer) PublicKey() ed25519.PublicKey { return s.publicKey }
-func (s *ed25519Signer) Kid() string                   { return s.kid }
-func (s *ed25519Signer) Issuer() string                { return s.issuer }
+func (s *ed25519Signer) Kid() string                  { return s.kid }
+func (s *ed25519Signer) Issuer() string               { return s.issuer }
 
 func marshalStableJSON(v any) ([]byte, error) {
 	var b bytes.Buffer
@@ -110,4 +175,3 @@ func marshalStableJSON(v any) ([]byte, error) {
 	}
 	return out, nil
 }
-

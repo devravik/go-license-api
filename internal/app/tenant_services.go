@@ -26,4 +26,3 @@ type TenantProductAdminService interface {
 	Get(ctx context.Context, tenantID, productID string) (any, error)
 	List(ctx context.Context, tenantID string, filter any) (any, error)
 }
-

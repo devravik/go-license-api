@@ -17,12 +17,12 @@ func NewError(code, message string) *APIError {
 }
 
 type LicenseValidationResponse struct {
-	Success bool                   `json:"success,omitempty"`
-	Valid   bool                   `json:"valid"`
-	License *domain.ValidationMeta `json:"license,omitempty"`
-	RequestID string               `json:"request_id,omitempty"`
-	Timestamp string               `json:"timestamp,omitempty"`
-	Error   *APIError              `json:"error,omitempty"`
+	Success   bool                   `json:"success,omitempty"`
+	Valid     bool                   `json:"valid"`
+	License   *domain.ValidationMeta `json:"license,omitempty"`
+	RequestID string                 `json:"request_id,omitempty"`
+	Timestamp string                 `json:"timestamp,omitempty"`
+	Error     *APIError              `json:"error,omitempty"`
 }
 
 type HealthResponse struct {

@@ -1,12 +1,12 @@
 package audit
 
 import (
+	"github.com/devravik/go-license-api/internal/audit"
 	"github.com/devravik/go-license-api/internal/http/dto"
 	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/gofiber/fiber/v3"
-	"github.com/devravik/go-license-api/internal/audit"
-	"time"
 	"strconv"
+	"time"
 )
 
 type Handler struct {
@@ -66,4 +66,3 @@ func auditErrorMessage(code string) string {
 		return code
 	}
 }
-

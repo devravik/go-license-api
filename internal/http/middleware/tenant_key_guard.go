@@ -91,4 +91,3 @@ func fingerprint(apiKeyHash string) string {
 	sum := sha256.Sum256([]byte(apiKeyHash))
 	return hex.EncodeToString(sum[:])[:12]
 }
-

@@ -106,4 +106,3 @@ func (s *ProductStore) cleanupLoop() {
 		s.l1.CleanupExpired(1000)
 	}
 }
-

@@ -13,4 +13,3 @@ type PlanStore interface {
 	Set(ctx context.Context, tenantID, planID string, plan *domain.Plan)
 	Invalidate(ctx context.Context, tenantID, planID string)
 }
-

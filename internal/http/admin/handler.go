@@ -3,12 +3,13 @@ package admin
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/devravik/go-license-api/internal/domain"
-	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/devravik/go-license-api/internal/http/dto"
+	"github.com/devravik/go-license-api/internal/http/handlers"
 	"github.com/devravik/go-license-api/internal/infrastructure/idgen"
 	crypto "github.com/devravik/go-license-api/internal/security"
 	"github.com/gofiber/fiber/v3"
@@ -355,13 +356,13 @@ func (h *Handler) CreatePlan(c fiber.Ctx) error {
 		planID = id
 	}
 	p := &domain.Plan{
-		ID:          planID,
-		TenantID:    req.TenantID,
-		ProductID:   req.ProductID,
-		Name:        req.Name,
-		Features:    req.Features,
-		Limits:      domain.PlanLimits{Seats: req.Seats},
-		IsActive:    req.IsActive,
+		ID:        planID,
+		TenantID:  req.TenantID,
+		ProductID: req.ProductID,
+		Name:      req.Name,
+		Features:  req.Features,
+		Limits:    domain.PlanLimits{Seats: req.Seats},
+		IsActive:  req.IsActive,
 	}
 	if err := h.base.AdminService.CreatePlan(c.Context(), p); err != nil {
 		return errJSON(c, fiber.StatusInternalServerError, "internal_error")
@@ -497,6 +498,34 @@ func (h *Handler) RestoreProduct(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
+// ListRevocations returns a compact list of revoked licenses for offline revocation distribution.
+// Admin-protected endpoint to comply with DB access rules.
+func (h *Handler) ListRevocations(c fiber.Ctx) error {
+	sinceParam := strings.TrimSpace(c.Query("since"))
+	var sincePtr *time.Time
+	if sinceParam != "" {
+		if t, err := time.Parse(time.RFC3339, sinceParam); err == nil {
+			sincePtr = &t
+		} else {
+			return errJSON(c, fiber.StatusBadRequest, "invalid_since")
+		}
+	}
+	limit := 1000
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 5000 {
+			limit = n
+		}
+	}
+	items, err := h.base.AdminService.ListRevocations(c.Context(), sincePtr, limit)
+	if err != nil {
+		return errJSON(c, fiber.StatusInternalServerError, "internal_error")
+	}
+	return c.JSON(fiber.Map{
+		"items": items,
+		"count": len(items),
+	})
+}
+
 func adminLicenseFromRequest(req dto.AdminCreateLicenseRequest) (*domain.License, error) {
 	lic := &domain.License{
 		TenantID:   req.TenantID,
@@ -523,6 +552,13 @@ func adminLicenseFromRequest(req dto.AdminCreateLicenseRequest) (*domain.License
 			return nil, err
 		}
 		lic.ExpiresAt = &t
+	}
+	if req.NotBefore != nil && *req.NotBefore != "" {
+		t, err := time.Parse(time.RFC3339, *req.NotBefore)
+		if err != nil {
+			return nil, err
+		}
+		lic.NotBefore = &t
 	}
 	if req.Trial.EndsAt != nil && *req.Trial.EndsAt != "" {
 		t, err := time.Parse(time.RFC3339, *req.Trial.EndsAt)
@@ -677,5 +713,3 @@ func errorMessage(code string) string {
 		return strings.ReplaceAll(code, "_", " ")
 	}
 }
-
-

@@ -135,6 +135,9 @@ func (m *mockAdminService) RestorePlan(_ context.Context, tenantID, planID strin
 func (m *mockAdminService) SetPlanActive(_ context.Context, tenantID, planID string, active bool) error {
 	return nil
 }
+func (m *mockAdminService) ListRevocations(_ context.Context, since *time.Time, limit int) ([]domain.Revocation, error) {
+	return []domain.Revocation{}, nil
+}
 
 func newTestApp(t *testing.T, val *mockValidationService, admin *mockAdminService) *fiber.App {
 	t.Helper()

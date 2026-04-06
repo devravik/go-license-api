@@ -105,4 +105,3 @@ func TestTenantAuth_ValidSetsContext(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 }
-

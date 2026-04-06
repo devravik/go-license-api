@@ -8,4 +8,3 @@ type ActivateRequest = dto.ActivateRequest
 type ActivateResponse = dto.ActivateResponse
 type DeactivateRequest = dto.DeactivateRequest
 type DeactivateResponse = dto.DeactivateResponse
-

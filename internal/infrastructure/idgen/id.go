@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DefaultLength = 12
+	DefaultLength  = 12
 	ParanoidLength = 16
 )
 
@@ -37,4 +37,3 @@ func NewID(prefix string) (string, error) {
 	}
 	return clean + "_" + id, nil
 }
-

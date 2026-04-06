@@ -72,6 +72,7 @@ Success:
       "name": "V Plugin"
     },
     "product_id": "prod_xxxxxxxx",
+    "not_before": "2026-01-01T00:00:00Z",
     "expires_at": "2026-12-31T00:00:00Z",
     "seats_total": -1,
     "unlimited_seats": true,
@@ -97,7 +98,7 @@ Failure:
 }
 ```
 
-Possible error values: `license_not_found`, `license_expired`, `license_revoked`, `license_in_grace_period`, `tenant_suspended`, `ip_not_allowed`.
+Possible error values: `license_not_found`, `license_not_active`, `license_expired`, `license_revoked`, `license_in_grace_period`, `tenant_suspended`, `ip_not_allowed`.
 
 `meta.type` is always present on successful validations (`plan` or `product`).
 
@@ -165,6 +166,7 @@ Response:
       "name": "V Plugin"
     },
     "product_id": "prod_xxxxxxxx",
+    "not_before": "2026-01-01T00:00:00Z",
     "expires_at": "2026-12-31T00:00:00Z",
     "seats_total": 10,
     "unlimited_seats": false,
@@ -246,7 +248,7 @@ Returns a detached-signature JSON envelope. `payload` is a canonical JSON string
 
 ```json
 {
-  "payload": "{\"license_id\":\"lic_xxx\",\"license_key\":\"LIC-ABC-123\",\"type\":\"plan\",\"tenant_id\":\"ten_xxx\",\"plan_id\":\"plan_xxx\",\"product_id\":\"prod_xxx\",\"status\":\"active\",\"expires_at\":\"2026-12-31T00:00:00Z\",\"not_before\":\"2026-01-01T00:00:00Z\",\"issued_at\":\"2026-01-01T00:00:00Z\",\"seats_total\":-1,\"seats_used\":2,\"features\":[\"sso\",\"audit-log\",\"beta-feature\"],\"kid\":\"ten_xxx_key_01\",\"issuer\":\"ten_xxx\"}",
+  "payload": "{\"license_id\":\"lic_xxx\",\"license_key\":\"LIC-ABC-123\",\"type\":\"plan\",\"tenant_id\":\"ten_xxx\",\"plan_id\":\"plan_xxx\",\"product_id\":\"prod_xxx\",\"status\":\"active\",\"expires_at\":\"2026-12-31T00:00:00Z\",\"not_before\":\"2026-01-01T00:00:00Z\",\"issued_at\":\"2026-01-01T00:00:00Z\",\"seats_total\":-1,\"seats_used\":2,\"features\":[\"sso\",\"audit-log\",\"beta-feature\"],\"max_offline_duration\":86400,\"kid\":\"ten_xxx_key_01\",\"issuer\":\"ten_xxx\"}",
   "signature": "<base64-encoded-ed25519-signature>",
   "kid": "ten_xxx_key_01",
   "issuer": "ten_xxx"
@@ -258,6 +260,38 @@ Verification flow:
 - decode `signature` as base64
 - verify `ed25519(public_key, payload_bytes, signature)`
 - parse the `payload` JSON and enforce `not_before` / `expires_at`
+- clients SHOULD allow ±5 minutes clock skew when evaluating `not_before` and `expires_at`
+- if `max_offline_duration` > 0, client MUST revalidate online after that many seconds from the last successful online validation; treat cached payload as stale past this window
+- soft binding (recommended): when present, clients SHOULD verify `client_id` matches the local device fingerprint; if `activation_id` is present, clients SHOULD treat payload as bound to that activation and avoid reuse on different devices.
+- stronger binding (enforceable): when `binding_required=true`, clients MUST reject if local fingerprint ≠ `client_id`
+- anti-replay: clients SHOULD log/attach `jti` on online calls to help detect reuse patterns
+- clock tampering: clients SHOULD deny if `now < issued_at - skew`
+
+### Revocations (offline lists)
+
+Admin endpoint to fetch compact revocation lists for distribution:
+
+`GET /admin/revocations?since=2026-01-01T00:00:00Z&limit=1000`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "revocation_id": "rev_123",
+      "license_id": "lic_abc",
+      "revoked_at": "2026-02-03T12:00:00Z",
+      "reason": "chargeback"
+    }
+  ],
+  "count": 1
+}
+```
+
+Client practice:
+- periodically fetch and cache locally
+- reject offline payloads whose `revocation_id` appears in the cache
 
 ---
 

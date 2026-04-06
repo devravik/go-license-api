@@ -14,6 +14,7 @@ type ActivationService interface {
 	Activate(ctx context.Context, tenantID, key, clientID, hostname string) (*domain.ActivationRecord, int, int, error)
 	Deactivate(ctx context.Context, tenantID, key, clientID string) error
 	RecordUsage(ctx context.Context, tenantID, key string, units int) (totalUsed int, remaining *int, err error)
+	GetActiveByClient(ctx context.Context, tenantID, key, clientID string) (*domain.ActivationRecord, error)
 }
 
 type ActivationLocker interface {
@@ -105,8 +106,8 @@ func (s *activationService) Activate(ctx context.Context, tenantID, key, clientI
 		ResourceID: key,
 		Outcome:    "success",
 		Meta: map[string]any{
-			"client_id":  clientID,
-			"hostname":   hostname,
+			"client_id": clientID,
+			"hostname":  hostname,
 		},
 	})
 
@@ -165,6 +166,13 @@ func (s *activationService) RecordUsage(ctx context.Context, tenantID, key strin
 	}
 	rem := *limit - total
 	return total, &rem, nil
+}
+
+func (s *activationService) GetActiveByClient(ctx context.Context, tenantID, key, clientID string) (*domain.ActivationRecord, error) {
+	if s.activations == nil {
+		return nil, domain.ErrLicenseNotFound
+	}
+	return s.activations.FindActiveByClient(ctx, tenantID, key, clientID)
 }
 
 func (s *activationService) resolveLicense(ctx context.Context, tenantID, key string) (*domain.License, error) {

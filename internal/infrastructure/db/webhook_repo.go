@@ -19,4 +19,3 @@ func (r *WebhookRepo) Create(ctx context.Context, id, tenantID, url string, even
 	_, err := r.pool.Exec(ctx, q, id, tenantID, url, events, secretEnc)
 	return err
 }
-

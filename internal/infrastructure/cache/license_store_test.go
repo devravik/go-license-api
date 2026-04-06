@@ -175,4 +175,3 @@ func TestLicenseStore_ConcurrentReadWrite(t *testing.T) {
 		}
 	}
 }
-

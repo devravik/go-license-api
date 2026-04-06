@@ -65,4 +65,3 @@ func TestLicense_FeatureCheck(t *testing.T) {
 		t.Fatalf("did not expect feature unknown to be present")
 	}
 }
-

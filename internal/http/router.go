@@ -151,6 +151,8 @@ func SetupRoutesV2(
 	adminGroup.Post("/tenants/:id/rotate_key", adminHandler.RotateTenantKey)
 	// Audit log query (Admin Control Plane)
 	adminGroup.Get("/audit-log", auditHandler.Query)
+	// Revocations distribution (Admin-protected)
+	adminGroup.Get("/revocations", adminHandler.ListRevocations)
 
 	// JWKS (Public) if deps are present.
 	if signerRegistry != nil {

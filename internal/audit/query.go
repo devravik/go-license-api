@@ -70,4 +70,3 @@ func nullTime(t time.Time) any {
 	}
 	return t
 }
-

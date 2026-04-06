@@ -25,7 +25,7 @@ func NewBucket(rps, burst int) *Bucket {
 		rps:      float64(rps),
 		lastFill: t,
 		lastSeen: t,
-		now:       now,
+		now:      now,
 	}
 }
 
@@ -42,7 +42,7 @@ func NewBucketWithNow(rps, burst int, nowFn func() time.Time) *Bucket {
 		rps:      float64(rps),
 		lastFill: t,
 		lastSeen: t,
-		now:       nowFn,
+		now:      nowFn,
 	}
 }
 

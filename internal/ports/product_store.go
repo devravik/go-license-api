@@ -13,4 +13,3 @@ type ProductStore interface {
 	Set(ctx context.Context, tenantID, code string, product *domain.Product)
 	Invalidate(ctx context.Context, tenantID, code string)
 }
-

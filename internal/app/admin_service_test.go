@@ -72,6 +72,9 @@ func (m *mockLicenseRepo) Update(ctx context.Context, l *domain.License) error {
 func (m *mockLicenseRepo) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*domain.License, error) {
 	return nil, nil
 }
+func (m *mockLicenseRepo) ListRevocationsSince(ctx context.Context, since *time.Time, limit int) ([]domain.Revocation, error) {
+	return []domain.Revocation{}, nil
+}
 
 type mockLicenseCache struct {
 	setFunc          func(ctx context.Context, tenantID, key string, license *domain.License)
@@ -238,17 +241,17 @@ func TestAdminService_RevokeLicense_UpdatesLicenseCacheAfterRevoke(t *testing.T)
 		var prodRepo domain.ProductRepository
 		var prodCache ports.ProductStore
 		svc := app.NewAdminService(repoLicense, tenantRepo, prodRepo, nil, licCache, tenCache, prodCache, nil, limiter, auditor)
-	if err := svc.RevokeLicense(ctx, tenantID, key); err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !revokeCalled {
-		t.Fatalf("expected revoke to be called")
-	}
-	if licCache.lastSetTenantID != tenantID || licCache.lastSetKey != key || licCache.lastSetLicense == nil {
-		t.Fatalf("expected license cache Set called for tenant=%s key=%s", tenantID, key)
-	}
-	if aud := auditor.writeCount; aud != 0 {
-		t.Fatalf("expected no audit writes on RevokeLicense, got %d", aud)
+		if err := svc.RevokeLicense(ctx, tenantID, key); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if !revokeCalled {
+			t.Fatalf("expected revoke to be called")
+		}
+		if licCache.lastSetTenantID != tenantID || licCache.lastSetKey != key || licCache.lastSetLicense == nil {
+			t.Fatalf("expected license cache Set called for tenant=%s key=%s", tenantID, key)
+		}
+		if aud := auditor.writeCount; aud != 0 {
+			t.Fatalf("expected no audit writes on RevokeLicense, got %d", aud)
 		}
 	}
 }
@@ -305,8 +308,8 @@ func TestAdminService_SuspendTenant_InvalidatesCaches(t *testing.T) {
 		var prodRepo domain.ProductRepository
 		var prodCache ports.ProductStore
 		svc := app.NewAdminService(licenseRepo, tenantRepo, prodRepo, nil, licCache, tenCache, prodCache, nil, limiter, auditor)
-	if err := svc.SuspendTenant(ctx, tenantID, "fraud"); err != nil {
-		t.Fatalf("expected nil error, got %v", err)
+		if err := svc.SuspendTenant(ctx, tenantID, "fraud"); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
 		}
 	}
 

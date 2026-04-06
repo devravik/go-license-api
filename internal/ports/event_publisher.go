@@ -10,4 +10,3 @@ type EventPublisher interface {
 	PublishProductUpserted(ctx context.Context, tenantID, code string) error
 	PublishProductDeleted(ctx context.Context, tenantID, code string) error
 }
-

@@ -32,11 +32,11 @@ type AdaptiveFailLimiter struct {
 	cfg         *setup.LimiterConfig
 	redisClient *redis.Client
 
-	localMu       sync.RWMutex
-	localBlocks   map[string]blockState
-	localFails    map[string]localFailState
-	localGlobal   map[string]localFailState
-	localStrikes  map[string]localStrikeState
+	localMu        sync.RWMutex
+	localBlocks    map[string]blockState
+	localFails     map[string]localFailState
+	localGlobal    map[string]localFailState
+	localStrikes   map[string]localStrikeState
 	lastLocalPrune time.Time
 }
 

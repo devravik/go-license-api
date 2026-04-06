@@ -39,7 +39,7 @@ func (d *dummyAdmin) CreateLicense(ctx context.Context, l *domain.License) error
 func (d *dummyAdmin) GetLicense(ctx context.Context, tenantID, key string) (*domain.License, error) {
 	return &domain.License{TenantID: tenantID, Key: key}, nil
 }
-func (d *dummyAdmin) UpdateLicense(ctx context.Context, l *domain.License) error { return nil }
+func (d *dummyAdmin) UpdateLicense(ctx context.Context, l *domain.License) error       { return nil }
 func (d *dummyAdmin) RevokeLicense(ctx context.Context, tenantID, key string) error    { return nil }
 func (d *dummyAdmin) SuspendTenant(ctx context.Context, tenantID, reason string) error { return nil }
 func (d *dummyAdmin) ReinstateTenant(ctx context.Context, tenantID string) error       { return nil }
@@ -81,6 +81,9 @@ func (d *dummyAdmin) RestorePlan(ctx context.Context, tenantID, planID string) e
 }
 func (d *dummyAdmin) SetPlanActive(ctx context.Context, tenantID, planID string, active bool) error {
 	return nil
+}
+func (d *dummyAdmin) ListRevocations(ctx context.Context, since *time.Time, limit int) ([]domain.Revocation, error) {
+	return []domain.Revocation{}, nil
 }
 
 func newRouterTestApp(t *testing.T) *fiber.App {

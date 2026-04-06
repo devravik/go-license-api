@@ -43,6 +43,9 @@ func (l *License) ValidateHardRules() error {
 	if l.Trial.Enabled && l.Trial.EndsAt == nil {
 		return errors.New("trial_ends_at_required_when_trial_enabled")
 	}
+	if l.NotBefore != nil && l.ExpiresAt != nil && l.NotBefore.After(*l.ExpiresAt) {
+		return errors.New("not_before_must_be_before_or_equal_expires_at")
+	}
 	if l.SeatsTotal != -1 && l.SeatsUsed > l.SeatsTotal {
 		return errors.New("seats_used_exceeds_seats_total")
 	}
@@ -88,4 +91,3 @@ func (l *License) ResolveFinalFeatures(plan *Plan, now time.Time) []string {
 	l.FinalFeatures = base
 	return base
 }
-

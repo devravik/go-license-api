@@ -11,8 +11,8 @@ import (
 	"github.com/devravik/go-license-api/internal/app"
 	"github.com/devravik/go-license-api/internal/domain"
 	"github.com/devravik/go-license-api/internal/http/admin"
-	"github.com/devravik/go-license-api/internal/http/middleware"
 	"github.com/devravik/go-license-api/internal/http/handlers"
+	"github.com/devravik/go-license-api/internal/http/middleware"
 	"github.com/devravik/go-license-api/internal/setup"
 	"github.com/gofiber/fiber/v3"
 )
@@ -44,9 +44,11 @@ func (m *mockAdminService) RevokeLicense(_ context.Context, tenantID, key string
 	m.lastRevokeTenant = tenantID
 	return m.revokeErr
 }
-func (m *mockAdminService) SuspendTenant(_ context.Context, tenantID, reason string) error { return nil }
-func (m *mockAdminService) ReinstateTenant(_ context.Context, tenantID string) error       { return nil }
-func (m *mockAdminService) DeleteTenant(_ context.Context, tenantID string) error          { return nil }
+func (m *mockAdminService) SuspendTenant(_ context.Context, tenantID, reason string) error {
+	return nil
+}
+func (m *mockAdminService) ReinstateTenant(_ context.Context, tenantID string) error { return nil }
+func (m *mockAdminService) DeleteTenant(_ context.Context, tenantID string) error    { return nil }
 func (m *mockAdminService) RotateTenantAPIKey(_ context.Context, tenantID string, gracePeriod time.Duration) (string, time.Time, error) {
 	return "rotated", time.Now().Add(gracePeriod), m.rotateKeyErr
 }
@@ -56,6 +58,7 @@ func (m *mockAdminService) UpdateTenantLimits(_ context.Context, tenantID string
 func (m *mockAdminService) UpdateTenantIPAllowlist(_ context.Context, tenantID string, cidrs []string) error {
 	return nil
 }
+
 // Satisfy new product methods on AdminService.
 func (m *mockAdminService) UpsertProduct(_ context.Context, p *domain.Product) error { return nil }
 func (m *mockAdminService) DeleteProduct(_ context.Context, tenantID, productID string) error {
@@ -83,6 +86,9 @@ func (m *mockAdminService) RestorePlan(_ context.Context, tenantID, planID strin
 }
 func (m *mockAdminService) SetPlanActive(_ context.Context, tenantID, planID string, active bool) error {
 	return nil
+}
+func (m *mockAdminService) ListRevocations(_ context.Context, since *time.Time, limit int) ([]domain.Revocation, error) {
+	return []domain.Revocation{}, nil
 }
 
 func newAdminTestApp(t *testing.T, adminSvc app.AdminService) *fiber.App {

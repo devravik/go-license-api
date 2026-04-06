@@ -44,4 +44,3 @@ func (NoopPublisher) PublishProductUpserted(ctx context.Context, tenantID, code 
 func (NoopPublisher) PublishProductDeleted(ctx context.Context, tenantID, code string) error {
 	return nil
 }
-

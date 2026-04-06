@@ -39,6 +39,8 @@ type AdminService interface {
 	DeletePlan(ctx context.Context, tenantID, planID string) error
 	RestorePlan(ctx context.Context, tenantID, planID string) error
 	SetPlanActive(ctx context.Context, tenantID, planID string, active bool) error
+	// Revocations distribution
+	ListRevocations(ctx context.Context, since *time.Time, limit int) ([]domain.Revocation, error)
 }
 
 type LicenseCache interface {
@@ -356,6 +358,13 @@ func (s *adminService) RevokeLicense(ctx context.Context, tenantID, key string) 
 	}
 	s.licCache.Set(ctx, tenantID, key, lic)
 	return nil
+}
+
+func (s *adminService) ListRevocations(ctx context.Context, since *time.Time, limit int) ([]domain.Revocation, error) {
+	if limit <= 0 || limit > 5000 {
+		limit = 1000
+	}
+	return s.licenses.ListRevocationsSince(ctx, since, limit)
 }
 
 func (s *adminService) SuspendTenant(ctx context.Context, tenantID, reason string) error {

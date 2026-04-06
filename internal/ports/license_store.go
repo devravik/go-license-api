@@ -9,4 +9,3 @@ import (
 type LicenseStore interface {
 	Get(ctx context.Context, tenantID, key string) (*domain.License, error)
 }
-

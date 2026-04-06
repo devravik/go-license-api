@@ -179,4 +179,3 @@ func TestTenantStore_OldKeyExpiredRejectedAndInvalidated(t *testing.T) {
 		t.Fatalf("expected expired old key cache entry to be invalidated")
 	}
 }
-

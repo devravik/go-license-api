@@ -56,4 +56,3 @@ func (h *Handler) RedocUI(c fiber.Ctx) error {
 	c.Type("html", "utf-8")
 	return c.SendString(html)
 }
-

@@ -17,11 +17,11 @@ type PublicLicenseRateLimiter struct {
 	buckets   map[string]*ratelimit.Bucket
 	idleEvict time.Duration
 	// limits
-	licRPS   int
-	licBurst int
-	ipRPS    int
-	ipBurst  int
-	pathRPS  int
+	licRPS    int
+	licBurst  int
+	ipRPS     int
+	ipBurst   int
+	pathRPS   int
 	pathBurst int
 }
 
@@ -130,4 +130,3 @@ func extractLicenseKey(c fiber.Ctx) string {
 	}
 	return strings.TrimSpace(kb.Key)
 }
-

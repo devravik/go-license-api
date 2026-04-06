@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"context"
-	"github.com/devravik/go-license-api/internal/audit"
 	"github.com/devravik/go-license-api/internal/app"
+	"github.com/devravik/go-license-api/internal/audit"
 	"github.com/devravik/go-license-api/internal/infrastructure/cache"
 	"github.com/devravik/go-license-api/internal/security"
 	"github.com/devravik/go-license-api/internal/setup"
@@ -11,7 +11,7 @@ import (
 )
 
 type Handler struct {
-	Cfg               *setup.Config
+	Cfg *setup.Config
 	// Readiness and diagnostics providers are injected by the server.
 	IsReady           func() bool
 	QueueDepth        func() int
@@ -45,9 +45,14 @@ func NewHandler(
 	webhookRepo WebhookWriter,
 ) *Handler {
 	return &Handler{
-		Cfg:               cfg,
-		IsReady:           func() bool { return true },
-		QueueDepth:        func() int { if pool != nil { return pool.QueueDepth() }; return 0 },
+		Cfg:     cfg,
+		IsReady: func() bool { return true },
+		QueueDepth: func() int {
+			if pool != nil {
+				return pool.QueueDepth()
+			}
+			return 0
+		},
 		ValidationService: valSvc,
 		ActivationService: activationSvc,
 		AdminService:      adminSvc,

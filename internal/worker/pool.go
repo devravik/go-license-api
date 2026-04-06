@@ -10,13 +10,13 @@ import (
 )
 
 type Pool struct {
-	queue      chan Job
-	wg         sync.WaitGroup
-	validation app.ValidationService
-	workers    int
-	restarts   int64
+	queue       chan Job
+	wg          sync.WaitGroup
+	validation  app.ValidationService
+	workers     int
+	restarts    int64
 	taskTimeout time.Duration
-	closeOnce  sync.Once
+	closeOnce   sync.Once
 }
 
 func NewPool(workers, queueSize int, validation app.ValidationService, taskTimeout ...time.Duration) *Pool {

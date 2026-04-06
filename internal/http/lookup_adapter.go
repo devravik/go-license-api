@@ -27,4 +27,3 @@ func (a *tenantKeyLookupAdapter) GetByAPIKeyHash(ctx context.Context, apiKeyHash
 		CIDRs:    t.IPAllowlist,
 	}, nil
 }
-

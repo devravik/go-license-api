@@ -10,4 +10,3 @@ import (
 type LicenseCacheWriter interface {
 	Set(ctx context.Context, tenantID, key string, license *domain.License)
 }
-

@@ -255,4 +255,3 @@ func TestPool_TaskTimeoutCancelsCtx(t *testing.T) {
 	defer drainCancel()
 	pool.Drain(drainCtx)
 }
-

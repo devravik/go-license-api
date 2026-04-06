@@ -68,7 +68,7 @@ type ActivationRecord struct {
 	TenantID  string `json:"tenant_id"`
 
 	ClientID string `json:"client_id"`
-	Hostname  string `json:"hostname"`
+	Hostname string `json:"hostname"`
 
 	IsActive bool `json:"is_active"`
 

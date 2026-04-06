@@ -22,4 +22,3 @@ func hasHeader(c fiber.Ctx, name string) bool {
 	v := strings.TrimSpace(c.Get(name))
 	return v != ""
 }
-

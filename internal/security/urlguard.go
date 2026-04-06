@@ -1,8 +1,8 @@
 package crypto
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,13 +12,13 @@ import (
 // IsPrivateIP returns true if the provided IP is within private, loopback, link-local, or otherwise non-public ranges.
 func IsPrivateIP(ip net.IP) bool {
 	privateCIDRs := []string{
-		"127.0.0.0/8",   // loopback
-		"10.0.0.0/8",    // private
-		"172.16.0.0/12", // private
-		"192.168.0.0/16",// private
-		"169.254.0.0/16",// link-local
-		"::1/128",       // IPv6 loopback
-		"fc00::/7",      // IPv6 unique local addresses
+		"127.0.0.0/8",    // loopback
+		"10.0.0.0/8",     // private
+		"172.16.0.0/12",  // private
+		"192.168.0.0/16", // private
+		"169.254.0.0/16", // link-local
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local addresses
 	}
 	for _, cidr := range privateCIDRs {
 		_, block, _ := net.ParseCIDR(cidr)
@@ -96,7 +96,7 @@ func NewRestrictedHTTPClient(timeout time.Duration) *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 	client := &http.Client{
-		Timeout: timeout,
+		Timeout:   timeout,
 		Transport: transport,
 		// Do not follow redirects automatically; avoid pivoting to internal addresses via Location.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -105,4 +105,3 @@ func NewRestrictedHTTPClient(timeout time.Duration) *http.Client {
 	}
 	return client
 }
-

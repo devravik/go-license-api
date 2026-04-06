@@ -9,4 +9,3 @@ import (
 type TenantStore interface {
 	Get(ctx context.Context, tenantID, apiKey string) (*domain.Tenant, error)
 }
-

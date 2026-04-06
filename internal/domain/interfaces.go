@@ -18,6 +18,8 @@ type LicenseRepository interface {
 	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*License, error)
 	// Note: last_validated_at updates and similar admin-safe ops are optional and can
 	// be provided by concrete repos without being part of the interface.
+	// ListRevocationsSince returns revoked licenses since timestamp (or all if since is nil).
+	ListRevocationsSince(ctx context.Context, since *time.Time, limit int) ([]Revocation, error)
 }
 
 // TenantRepository provides persistent tenant storage operations.
@@ -37,6 +39,7 @@ type ActivationRepository interface {
 	ActivateWithLock(ctx context.Context, tenantID, key string, record *ActivationRecord) (remaining int, err error)
 	Release(ctx context.Context, activationID string) error
 	ReleaseByClient(ctx context.Context, tenantID, key, clientID string) error
+	FindActiveByClient(ctx context.Context, tenantID, key, clientID string) (*ActivationRecord, error)
 	CountActive(ctx context.Context, licenseID string) (int, error)
 	RecordUsage(ctx context.Context, licenseID string, units int) (totalUsed int, limit *int, err error)
 }

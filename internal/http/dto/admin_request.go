@@ -1,10 +1,10 @@
 package dto
 
 type AdminRevokeLicenseRequest struct {
-	TenantID string `json:"tenant_id"`
+	TenantID   string `json:"tenant_id"`
 	LicenseKey string `json:"license_key"`
 	Key        string `json:"key"`
-	Reason   string `json:"reason,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 func (r AdminRevokeLicenseRequest) EffectiveLicenseKey() string {
@@ -43,23 +43,23 @@ type AdminRegisterWebhookRequest struct {
 }
 
 type AdminUpdateTenantProfileRequest struct {
-	Name        string                 `json:"name"`
-	Slug        string                 `json:"slug"`
-	Email       string                 `json:"email"`
-	Company     string                 `json:"company"`
-	Plan        string                 `json:"plan"`
-	MaxLicenses int                    `json:"max_licenses"`
-	Metadata    map[string]any         `json:"metadata"`
+	Name        string         `json:"name"`
+	Slug        string         `json:"slug"`
+	Email       string         `json:"email"`
+	Company     string         `json:"company"`
+	Plan        string         `json:"plan"`
+	MaxLicenses int            `json:"max_licenses"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 type AdminUpsertPlanRequest struct {
-	ID          string   `json:"id"`
-	TenantID    string   `json:"tenant_id"`
-	ProductID   *string  `json:"product_id"`
-	Name        string   `json:"name"`
-	Features    []string `json:"features"`
-	Seats       int      `json:"seats"`
-	IsActive    bool     `json:"is_active"`
+	ID        string   `json:"id"`
+	TenantID  string   `json:"tenant_id"`
+	ProductID *string  `json:"product_id"`
+	Name      string   `json:"name"`
+	Features  []string `json:"features"`
+	Seats     int      `json:"seats"`
+	IsActive  bool     `json:"is_active"`
 }
 
 type AdminSetPlanActiveRequest struct {
@@ -67,18 +67,19 @@ type AdminSetPlanActiveRequest struct {
 }
 
 type AdminCreateLicenseRequest struct {
-	TenantID   string     `json:"tenant_id"`
-	Type       string     `json:"type"`
-	PlanID     *string    `json:"plan_id"`
-	ProductID  *string    `json:"product_id"`
+	TenantID   string                   `json:"tenant_id"`
+	Type       string                   `json:"type"`
+	PlanID     *string                  `json:"plan_id"`
+	ProductID  *string                  `json:"product_id"`
 	Plan       *AdminInlinePlanInput    `json:"plan"`
 	Product    *AdminInlineProductInput `json:"product"`
-	Key        string     `json:"key"`
-	Status     string     `json:"status"`
-	ExpiresAt  *string    `json:"expires_at"`
-	SeatsTotal int        `json:"seats_total"`
-	SeatsUsed  int        `json:"seats_used"`
-	Features   []string   `json:"features"`
+	Key        string                   `json:"key"`
+	Status     string                   `json:"status"`
+	NotBefore  *string                  `json:"not_before"`
+	ExpiresAt  *string                  `json:"expires_at"`
+	SeatsTotal int                      `json:"seats_total"`
+	SeatsUsed  int                      `json:"seats_used"`
+	Features   []string                 `json:"features"`
 	Overrides  struct {
 		FeaturesAdd    []string `json:"features_add"`
 		FeaturesRemove []string `json:"features_remove"`
