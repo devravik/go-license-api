@@ -88,8 +88,7 @@
                 "example": {
                   "value": {
                     "license_key": "LIC-ABC-123",
-                    "client_id": "host-xyz",
-                    "product_code": "pro-app"
+                    "product_id": "prod_xxxxxxxx"
                   }
                 }
               }
@@ -252,19 +251,14 @@
         }
       }
     },
-    "/licenses/{license_key}/signed": {
+    "/licenses/{key}/signed": {
       "get": {
-        "summary": "Fetch a signed license (JWS/JWT)",
-        "description": "Available when signerRegistry is configured. Returns JWS in compact serialization. Legacy alias `{key}` is also accepted.",
+        "summary": "Fetch a signed offline license envelope",
+        "description": "Available when signerRegistry is configured. Public cache-only endpoint. Returns a detached-signature JSON envelope (`payload` + `signature`).",
         "operationId": "getSignedLicense",
-        "security": [
-          {
-            "TenantAuth": []
-          }
-        ],
         "parameters": [
           {
-            "name": "license_key",
+            "name": "key",
             "in": "path",
             "required": true,
             "schema": {
@@ -274,57 +268,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Signed license token",
-            "content": {
-              "application/jwt": {
-                "schema": {
-                  "type": "string",
-                  "description": "JWS compact serialization"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
+            "description": "Signed license envelope",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/licenses/signed": {
-      "post": {
-        "summary": "Issue a signed license (JWS/JWT)",
-        "description": "Available when signerRegistry is configured.",
-        "operationId": "postSignedLicense",
-        "security": [
-          {
-            "TenantAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SignedLicenseRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Signed license token",
-            "content": {
-              "application/jwt": {
-                "schema": {
-                  "type": "string",
-                  "description": "JWS compact serialization"
+                  "$ref": "#/components/schemas/SignedLicenseEnvelope"
                 }
               }
             }
@@ -373,6 +321,70 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/revocations": {
+      "get": {
+        "summary": "List license revocations",
+        "description": "Returns a compact list of revoked licenses for offline distribution. Admin protected.",
+        "operationId": "getRevocations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Return revocations with revoked_at >= since"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Max items (default 1000, max 5000)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revocations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "revocation_id": {
+                            "type": "string"
+                          },
+                          "license_id": {
+                            "type": "string"
+                          },
+                          "revoked_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -763,6 +775,7 @@
           "code": {
             "type": "string",
             "enum": [
+              "license_not_active",
               "license_expired",
               "license_not_found",
               "rate_limited",
@@ -789,7 +802,7 @@
         "properties": {
           "license_key": {
             "type": "string",
-            "description": "Preferred field; alias \"key\" also accepted"
+            "description": "Preferred field; alias 'key' also accepted"
           },
           "key": {
             "type": "string",
@@ -797,7 +810,7 @@
           },
           "product_id": {
             "type": "string",
-            "description": "Preferred field; alias \"product\" also accepted"
+            "description": "Preferred field; alias 'product' also accepted"
           },
           "product": {
             "type": "string",
@@ -823,6 +836,87 @@
         },
         "required": [
           "valid"
+        ],
+        "description": "On invalid responses, clients should treat `license` as null/absent and use `error` for state."
+      },
+      "ValidationMeta": {
+        "type": "object",
+        "properties": {
+          "license_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "product"
+            ]
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/ValidationRef"
+          },
+          "product": {
+            "$ref": "#/components/schemas/ValidationRef"
+          },
+          "product_id": {
+            "type": "string"
+          },
+          "not_before": {
+            "type": "string",
+            "format": "date-time",
+            "description": "License is invalid before this time. Clients SHOULD allow ±5 minutes clock skew."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "License expiry timestamp. Clients SHOULD allow ±5 minutes clock skew."
+          },
+          "seats_total": {
+            "type": "integer"
+          },
+          "unlimited_seats": {
+            "type": "boolean"
+          },
+          "trial": {
+            "type": "boolean"
+          },
+          "grace_period_ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Set when grace-period information is available. For `license_in_grace_period`, this is non-null."
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer"
+          },
+          "in_grace_period": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ValidationRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ]
       },
       "ActivationRequest": {
@@ -846,7 +940,12 @@
         },
         "required": [
           "license_key"
-        ]
+        ],
+        "example": {
+          "license_key": "LIC-ABC-123",
+          "client_id": "sha256-of-hardware-fingerprint",
+          "hostname": "workstation-42"
+        }
       },
       "ActivationAccepted": {
         "type": "object",
@@ -883,7 +982,11 @@
         },
         "required": [
           "license_key"
-        ]
+        ],
+        "example": {
+          "license_key": "LIC-ABC-123",
+          "client_id": "sha256-of-hardware-fingerprint"
+        }
       },
       "DeactivationAccepted": {
         "type": "object",
@@ -924,7 +1027,11 @@
         "required": [
           "license_key",
           "units"
-        ]
+        ],
+        "example": {
+          "license_key": "LIC-ABC-123",
+          "units": 10
+        }
       },
       "UsageAccepted": {
         "type": "object",
@@ -944,19 +1051,132 @@
           "status"
         ]
       },
-      "SignedLicenseRequest": {
+      "SignedLicenseEnvelope": {
         "type": "object",
         "properties": {
-          "license_key": {
+          "payload": {
+            "type": "string",
+            "description": "Canonical JSON string of SignedLicensePayload."
+          },
+          "signature": {
+            "type": "string",
+            "description": "Base64-encoded Ed25519 signature over raw payload bytes."
+          },
+          "kid": {
             "type": "string"
           },
-          "key": {
-            "type": "string",
-            "description": "Deprecated alias for license_key"
+          "issuer": {
+            "type": "string"
           }
         },
         "required": [
-          "license_key"
+          "payload",
+          "signature",
+          "kid",
+          "issuer"
+        ]
+      },
+      "SignedLicensePayload": {
+        "type": "object",
+        "properties": {
+          "license_id": {
+            "type": "string"
+          },
+          "license_key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "product"
+            ]
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "not_before": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Activation lower bound. Clients SHOULD allow ±5 minutes clock skew."
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "seats_total": {
+            "type": "integer"
+          },
+          "seats_used": {
+            "type": "integer"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activation_id": {
+            "type": "string",
+            "description": "Optional soft-binding to a specific activation record."
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Optional client identifier (e.g., SHA-256 of hardware fingerprint). If present, clients SHOULD verify it matches local device."
+          },
+          "binding_required": {
+            "type": "boolean",
+            "description": "When true, clients MUST reject if local device fingerprint ≠ client_id."
+          },
+          "max_offline_duration": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum seconds a client may rely on this payload without online revalidation. 0 means no limit."
+          },
+          "jti": {
+            "type": "string",
+            "description": "Unique token id per issuance for replay detection when online."
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Payload schema version for forward-compat clients."
+          },
+          "revocation_id": {
+            "type": "string",
+            "description": "Stable per-license revocation identifier for offline revocation lists."
+          },
+          "kid": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "license_id",
+          "license_key",
+          "type",
+          "tenant_id",
+          "status",
+          "not_before",
+          "issued_at",
+          "features",
+          "kid",
+          "issuer"
         ]
       },
       "CreateTenantRequest": {
@@ -1099,105 +1319,42 @@
                 "kid": {
                   "type": "string"
                 },
-                "kty": {
+                "issuer": {
                   "type": "string"
+                },
+                "kty": {
+                  "type": "string",
+                  "enum": [
+                    "OKP"
+                  ]
+                },
+                "crv": {
+                  "type": "string",
+                  "enum": [
+                    "Ed25519"
+                  ]
                 },
                 "alg": {
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "EdDSA"
+                  ]
                 },
-                "use": {
-                  "type": "string"
-                },
-                "n": {
-                  "type": "string"
-                },
-                "e": {
+                "x": {
                   "type": "string"
                 }
               },
               "required": [
                 "kid",
-                "kty"
+                "issuer",
+                "kty",
+                "crv",
+                "alg",
+                "x"
               ]
             }
           }
         }
-      },
-      "ValidationMeta": {
-        "type": "object",
-        "properties": {
-          "license_id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "plan",
-              "product"
-            ]
-          },
-          "plan": {
-            "$ref": "#/components/schemas/ValidationRef"
-          },
-          "product": {
-            "$ref": "#/components/schemas/ValidationRef"
-          },
-          "product_id": {
-            "type": "string"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "seats_total": {
-            "type": "integer",
-            "nullable": true
-          },
-          "unlimited_seats": {
-            "type": "boolean"
-          },
-          "trial": {
-            "type": "boolean"
-          },
-          "grace_period_ends_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "features": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "version": {
-            "type": "integer"
-          },
-          "in_grace_period": {
-            "type": "boolean"
-          },
-          "plan_id": {
-            "type": "string"
-          }
-        }
-      },
-      "ValidationRef": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ]
       }
     }
   }
