@@ -13,10 +13,12 @@ jobs:
       - name: Lint OpenAPI
         run: docker run --rm -v "$PWD":/work -w /work redocly/cli:latest lint docs/openapi.yaml
       - name: Build JSON
-        run: docker run --rm -v "$PWD":/work -w /work redocly/cli:latest bundle docs/openapi.yaml -o /tmp/openapi.generated.json
+        run: |
+          mkdir -p .openapi
+          docker run --rm -v "$PWD":/work -w /work redocly/cli:latest bundle docs/openapi.yaml -o .openapi/openapi.generated.json
       - name: Check JSON in sync
-        run: diff -u docs/openapi.json /tmp/openapi.generated.json || (echo "::error file=docs/openapi.json::JSON not in sync with YAML" && exit 1)
+        run: diff -u docs/openapi.json .openapi/openapi.generated.json || (echo "::error file=docs/openapi.json::JSON not in sync with YAML" && exit 1)
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/openapi.generated.json
+        run: rm -f .openapi/openapi.generated.json
 
